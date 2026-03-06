@@ -1,38 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAppStore } from "../../stores/appStore";
+import { detectHardware, getOllamaStatus, updateSettings } from "../../lib/api";
+import type { HardwareData, ModelData } from "../../lib/api";
 
 const STEPS = [
-  {
-    icon: "🔒",
-    title: "Welcome to PureQL",
-    desc: "Your data never leaves your machine. Everything runs locally. Zero servers, zero telemetry, zero accounts.",
-  },
-  {
-    icon: "🔍",
-    title: "Detecting your hardware...",
-    desc: "PureQL analyzes your system to recommend the best AI model.",
-  },
-  {
-    icon: "⚙",
-    title: "Installing AI engine",
-    desc: "PureQL installs Ollama automatically. No action needed from you.",
-  },
-  {
-    icon: "⬡",
-    title: "Choose your AI model",
-    desc: "Based on your hardware, these free models will run well:",
-  },
-  {
-    icon: "📁",
-    title: "Ready! Drop your first dataset",
-    desc: "Drag a CSV, Excel, JSON, or Parquet file to get started.",
-  },
-];
-
-const MODELS = [
-  { name: "Qwen 2.5 7B", tag: "RECOMMENDED", size: "4.4 GB", desc: "Best for data & SQL" },
-  { name: "Mistral 7B", tag: "FAST", size: "4.1 GB", desc: "Versatile and fast" },
-  { name: "Phi-3 Mini 3.8B", tag: "LIGHT", size: "2.3 GB", desc: "Minimal resources" },
+  { icon: "🔒", title: "Welcome to PureQL", desc: "Your data never leaves your machine. Everything runs locally." },
+  { icon: "🔍", title: "Detecting your hardware...", desc: "" },
+  { icon: "⚙", title: "Checking AI engine...", desc: "" },
+  { icon: "⬡", title: "Choose your AI model", desc: "Based on your hardware, these models will run well:" },
+  { icon: "📁", title: "Ready! Load your first dataset", desc: "Drop a CSV, Excel, JSON, or Parquet file to get started." },
 ];
 
 interface Props {
@@ -41,22 +17,56 @@ interface Props {
 
 export function OnboardingWizard({ onComplete }: Props) {
   const [step, setStep] = useState(0);
-  const { setSelectedModel, setHardware } = useAppStore();
+  const [hardware, setHardware] = useState<HardwareData | null>(null);
+  const [models, setModels] = useState<ModelData[]>([]);
+  const [ollamaInstalled, setOllamaInstalled] = useState(false);
+  const [ollamaRunning, setOllamaRunning] = useState(false);
+  const [selectedModel, setSelectedModel] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const handleModelSelect = (modelName: string) => {
+  // Auto-detect hardware when reaching step 1
+  useEffect(() => {
+    if (step === 1) {
+      setLoading(true);
+      detectHardware()
+        .then((res) => {
+          setHardware(res.hardware);
+          setModels(res.recommendedModels);
+          setLoading(false);
+          // Auto-advance after a moment
+          setTimeout(() => setStep(2), 1500);
+        })
+        .catch(() => {
+          setLoading(false);
+          setTimeout(() => setStep(2), 1000);
+        });
+    }
+  }, [step]);
+
+  // Check Ollama when reaching step 2
+  useEffect(() => {
+    if (step === 2) {
+      setLoading(true);
+      getOllamaStatus()
+        .then((res) => {
+          setOllamaInstalled(res.installed);
+          setOllamaRunning(res.running);
+          setLoading(false);
+          setTimeout(() => setStep(3), 1500);
+        })
+        .catch(() => {
+          setLoading(false);
+          setTimeout(() => setStep(3), 1000);
+        });
+    }
+  }, [step]);
+
+  const handleModelSelect = async (modelName: string) => {
     setSelectedModel(modelName);
+    await updateSettings({ model: modelName }).catch(() => {});
   };
 
   const handleNext = () => {
-    if (step === 1) {
-      // Simulate hardware detection
-      setHardware({
-        ram: 16,
-        cpuCores: 8,
-        gpu: "Detected GPU",
-        os: navigator.platform,
-      });
-    }
     if (step < STEPS.length - 1) {
       setStep(step + 1);
     } else {
@@ -68,8 +78,7 @@ export function OnboardingWizard({ onComplete }: Props) {
 
   return (
     <div className="h-screen bg-pureql-dark flex flex-col">
-      {/* Title bar placeholder */}
-      <div className="h-10 border-b border-pureql-border flex items-center px-4" data-tauri-drag-region>
+      <div className="h-10 border-b border-pureql-border flex items-center px-4">
         <div className="flex gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full bg-red-500" />
           <span className="w-2.5 h-2.5 rounded-full bg-yellow-500" />
@@ -78,67 +87,117 @@ export function OnboardingWizard({ onComplete }: Props) {
         <span className="text-[11px] text-zinc-500 ml-3">PureQL — Setup</span>
       </div>
 
-      {/* Content */}
       <div className="flex-1 flex flex-col items-center justify-center p-8">
-        <div className="text-[10px] text-zinc-600 mb-6">
-          {step + 1}/{STEPS.length}
-        </div>
+        <div className="text-[10px] text-zinc-600 mb-6">{step + 1}/{STEPS.length}</div>
         <div className="text-4xl mb-4">{current.icon}</div>
-        <h2 className="text-xl font-bold text-pureql-accent mb-2">
-          {current.title}
-        </h2>
-        <p className="text-xs text-zinc-500 text-center max-w-sm leading-relaxed mb-6">
-          {current.desc}
-        </p>
+        <h2 className="text-xl font-bold text-pureql-accent mb-2">{current.title}</h2>
+        {current.desc && (
+          <p className="text-xs text-zinc-500 text-center max-w-sm leading-relaxed mb-6">{current.desc}</p>
+        )}
+
+        {/* Step 1: Hardware info */}
+        {step === 1 && hardware && (
+          <div className="bg-pureql-card border border-pureql-border rounded-lg p-4 w-full max-w-sm mt-4">
+            {[
+              ["RAM", `${hardware.ramGb} GB`],
+              ["CPU", `${hardware.cpuCores} cores`],
+              ["GPU", hardware.gpu || "None detected"],
+              ["OS", `${hardware.os} (${hardware.arch})`],
+              ["Tier", hardware.tier.toUpperCase()],
+            ].map(([k, v]) => (
+              <div key={k} className="flex justify-between py-1.5 text-[11px] border-b border-pureql-border last:border-0">
+                <span className="text-zinc-500">{k}</span>
+                <span className="text-pureql-accent">{v}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Step 2: Ollama status */}
+        {step === 2 && (
+          <div className="bg-pureql-card border border-pureql-border rounded-lg p-4 w-full max-w-sm mt-4">
+            <div className="flex items-center gap-2 py-1.5 text-[11px]">
+              <span className={ollamaInstalled ? "text-green-400" : "text-orange-400"}>
+                {ollamaInstalled ? "✓" : "⚠"}
+              </span>
+              <span className="text-zinc-400">
+                Ollama: {ollamaInstalled ? "Installed" : "Not installed"}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 py-1.5 text-[11px]">
+              <span className={ollamaRunning ? "text-green-400" : "text-zinc-600"}>
+                {ollamaRunning ? "✓" : "○"}
+              </span>
+              <span className="text-zinc-400">
+                Server: {ollamaRunning ? "Running" : "Not running"}
+              </span>
+            </div>
+            {!ollamaInstalled && (
+              <div className="mt-3 text-[10px] text-zinc-500 bg-pureql-dark p-2 rounded">
+                Install Ollama from <span className="text-pureql-accent">ollama.com</span> for local AI.
+                You can also use cloud APIs (OpenAI, etc.) instead.
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Step 3: Model selection */}
         {step === 3 && (
-          <div className="w-full max-w-sm space-y-2 mb-6">
-            {MODELS.map((m) => (
+          <div className="w-full max-w-sm space-y-2 mt-2">
+            {models.slice(0, 5).map((m) => (
               <button
                 key={m.name}
                 onClick={() => handleModelSelect(m.name)}
                 className={`w-full text-left px-4 py-3 rounded-lg border transition ${
-                  m.tag === "RECOMMENDED"
+                  selectedModel === m.name || (!selectedModel && m.recommended)
                     ? "bg-pureql-accent-dim border-pureql-accent/30"
                     : "bg-pureql-card border-pureql-border hover:border-zinc-600"
                 }`}
               >
                 <div className="flex justify-between items-center">
                   <span className={`text-sm font-semibold ${
-                    m.tag === "RECOMMENDED" ? "text-pureql-accent" : "text-zinc-300"
+                    m.recommended ? "text-pureql-accent" : "text-zinc-300"
                   }`}>
-                    {m.name}
+                    {m.display_name}
                   </span>
                   <span className="text-[9px] font-bold text-zinc-500 bg-pureql-dark px-2 py-0.5 rounded">
-                    {m.tag}
+                    {m.size_gb} GB
                   </span>
                 </div>
-                <div className="text-[11px] text-zinc-500 mt-1">
-                  {m.desc} · {m.size}
-                </div>
+                <div className="text-[11px] text-zinc-500 mt-1">{m.best_for}</div>
               </button>
             ))}
+            <div className="text-[10px] text-zinc-600 text-center mt-2">
+              You can also configure cloud API keys later in Settings
+            </div>
           </div>
         )}
 
         {/* Navigation */}
-        <div className="flex gap-3">
-          {step > 0 && (
+        {!loading && (step === 0 || step === 3 || step === 4) && (
+          <div className="flex gap-3 mt-6">
+            {step > 0 && step !== 1 && step !== 2 && (
+              <button
+                onClick={() => setStep(step - 1)}
+                className="px-5 py-2 text-xs text-zinc-400 border border-pureql-border rounded-md hover:border-zinc-600 transition"
+              >
+                ← Back
+              </button>
+            )}
             <button
-              onClick={() => setStep(step - 1)}
-              className="px-5 py-2 text-xs text-zinc-400 border border-pureql-border rounded-md hover:border-zinc-600 transition"
+              onClick={handleNext}
+              className="px-5 py-2 text-xs text-pureql-accent bg-pureql-accent-dim border border-pureql-accent/30 rounded-md hover:bg-pureql-accent/20 transition"
             >
-              ← Back
+              {step === STEPS.length - 1 ? "Get Started" : "Next →"}
             </button>
-          )}
-          <button
-            onClick={handleNext}
-            className="px-5 py-2 text-xs text-pureql-accent bg-pureql-accent-dim border border-pureql-accent/30 rounded-md hover:bg-pureql-accent/20 transition"
-          >
-            {step === STEPS.length - 1 ? "Get Started" : "Next →"}
-          </button>
-        </div>
+          </div>
+        )}
+
+        {loading && (
+          <div className="mt-6 w-24 h-1 bg-pureql-border rounded overflow-hidden">
+            <div className="h-full bg-pureql-accent rounded animate-pulse" style={{ width: "70%" }} />
+          </div>
+        )}
       </div>
 
       {/* Progress dots */}
@@ -147,7 +206,7 @@ export function OnboardingWizard({ onComplete }: Props) {
           <div
             key={i}
             className={`h-1.5 rounded-full transition-all ${
-              i === step ? "w-4 bg-pureql-accent" : "w-1.5 bg-zinc-700"
+              i === step ? "w-4 bg-pureql-accent" : i < step ? "w-1.5 bg-pureql-accent/40" : "w-1.5 bg-zinc-700"
             }`}
           />
         ))}
