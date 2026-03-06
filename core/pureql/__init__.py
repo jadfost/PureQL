@@ -11,6 +11,11 @@ from pureql.cleaning import (
 )
 from pureql.sql import generate_schema, optimize_query, run_query
 from pureql.versioning import VersionStore
+from pureql.database import (
+    connect as db_connect, build_uri, test_connection,
+    get_tables, read_table, read_query, write_table,
+    ConnectionStore,
+)
 
 __all__ = [
     "load", "profile",

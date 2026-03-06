@@ -23,6 +23,11 @@ from pureql.cleaning import (
 )
 from pureql.sql import generate_schema, optimize_query, run_query
 from pureql.versioning import VersionStore
+from pureql.database import (
+    build_uri, connect as db_connect, test_connection, disconnect as db_disconnect,
+    get_tables, read_table, read_query, write_table,
+    ConnectionStore, SUPPORTED_ENGINES,
+)
 from pureql.ai.ollama_client import (
     detect_hardware, get_recommended_models,
     is_ollama_installed, is_ollama_running, get_installed_models,
@@ -42,6 +47,7 @@ class AppState:
         self.ai_model: str = "qwen2.5:7b"
         self.ai_provider: str = "ollama"
         self.ai_api_key: Optional[str] = None
+        self.connections: ConnectionStore = ConnectionStore()
 
     def reset(self):
         self.df = None
@@ -263,6 +269,24 @@ class PureQLHandler(BaseHTTPRequestHandler):
                 self._handle_optimize(data)
             elif path == "/query":
                 self._handle_query(data)
+            elif path == "/db/engines":
+                self._handle_db_engines()
+            elif path == "/db/connect":
+                self._handle_db_connect(data)
+            elif path == "/db/test":
+                self._handle_db_test(data)
+            elif path == "/db/disconnect":
+                self._handle_db_disconnect(data)
+            elif path == "/db/tables":
+                self._handle_db_tables(data)
+            elif path == "/db/read":
+                self._handle_db_read(data)
+            elif path == "/db/read-query":
+                self._handle_db_read_query(data)
+            elif path == "/db/write":
+                self._handle_db_write(data)
+            elif path == "/db/connections":
+                self._handle_db_connections()
             else:
                 self._respond(404, {"error": f"Unknown endpoint: {path}"})
         except Exception as e:
@@ -545,6 +569,171 @@ class PureQLHandler(BaseHTTPRequestHandler):
             })
         except Exception as e:
             self._respond(400, {"error": str(e)})
+
+    # ── Database Handlers ──
+
+    def _handle_db_engines(self):
+        engines = [
+            {
+                "id": k,
+                "name": v["name"],
+                "icon": v["icon"],
+                "defaultPort": v["default_port"],
+            }
+            for k, v in SUPPORTED_ENGINES.items()
+        ]
+        self._respond(200, {"engines": engines})
+
+    def _handle_db_connect(self, data: dict):
+        engine_type = data.get("engineType", "postgresql")
+        name = data.get("name", engine_type)
+
+        # Build URI from params or use direct URI
+        uri = data.get("uri")
+        if not uri:
+            uri = build_uri(
+                engine_type=engine_type,
+                host=data.get("host", "localhost"),
+                port=data.get("port"),
+                database=data.get("database", ""),
+                user=data.get("user", ""),
+                password=data.get("password", ""),
+                path=data.get("path", ""),
+            )
+
+        conn = db_connect(uri=uri, name=name, engine_type=engine_type)
+        state.connections.add(conn)
+
+        if conn.connected:
+            tables = get_tables(conn)
+            self._respond(200, {
+                "success": True,
+                "connection": conn.to_dict(),
+                "tables": [t.to_dict() for t in tables],
+            })
+        else:
+            self._respond(200, {
+                "success": False,
+                "connection": conn.to_dict(),
+                "error": conn.error,
+            })
+
+    def _handle_db_test(self, data: dict):
+        engine_type = data.get("engineType", "postgresql")
+
+        uri = data.get("uri")
+        if not uri:
+            uri = build_uri(
+                engine_type=engine_type,
+                host=data.get("host", "localhost"),
+                port=data.get("port"),
+                database=data.get("database", ""),
+                user=data.get("user", ""),
+                password=data.get("password", ""),
+                path=data.get("path", ""),
+            )
+
+        result = test_connection(uri)
+        self._respond(200, result)
+
+    def _handle_db_disconnect(self, data: dict):
+        name = data.get("name", "")
+        state.connections.remove(name)
+        self._respond(200, {"success": True, "message": f"Disconnected from '{name}'."})
+
+    def _handle_db_tables(self, data: dict):
+        name = data.get("connection", "")
+        schema = data.get("schema")
+        conn = state.connections.get(name)
+
+        if not conn or not conn.connected:
+            self._respond(400, {"error": f"Connection '{name}' not found or not connected."})
+            return
+
+        tables = get_tables(conn, schema=schema)
+        self._respond(200, {"tables": [t.to_dict() for t in tables]})
+
+    def _handle_db_read(self, data: dict):
+        name = data.get("connection", "")
+        conn = state.connections.get(name)
+
+        if not conn or not conn.connected:
+            self._respond(400, {"error": f"Connection '{name}' not found."})
+            return
+
+        table_name = data.get("table", "")
+        columns = data.get("columns")
+        limit = data.get("limit")
+        where = data.get("where")
+
+        df = read_table(conn, table_name, columns=columns, limit=limit, where=where)
+
+        # Set as current dataset
+        state.df = df
+        state.dataset_name = f"{name}:{table_name}"
+
+        prof = profile(state.df)
+        state.store = VersionStore()
+        state.store.create_initial(state.df, quality_score=prof.quality_score)
+
+        self._respond(200, {
+            "success": True,
+            "datasetName": state.dataset_name,
+            "profile": prof.to_dict(),
+            "preview": _get_preview(state.df),
+            "versions": state.store.get_timeline(),
+        })
+
+    def _handle_db_read_query(self, data: dict):
+        name = data.get("connection", "")
+        conn = state.connections.get(name)
+
+        if not conn or not conn.connected:
+            self._respond(400, {"error": f"Connection '{name}' not found."})
+            return
+
+        query = data.get("query", "")
+        df = read_query(conn, query)
+
+        state.df = df
+        state.dataset_name = f"{name}:query"
+
+        prof = profile(state.df)
+        state.store = VersionStore()
+        state.store.create_initial(state.df, quality_score=prof.quality_score)
+
+        self._respond(200, {
+            "success": True,
+            "datasetName": state.dataset_name,
+            "profile": prof.to_dict(),
+            "preview": _get_preview(state.df),
+            "versions": state.store.get_timeline(),
+            "rowCount": df.height,
+            "colCount": df.width,
+        })
+
+    def _handle_db_write(self, data: dict):
+        if state.df is None:
+            self._respond(400, {"error": "No dataset loaded."})
+            return
+
+        name = data.get("connection", "")
+        conn = state.connections.get(name)
+
+        if not conn or not conn.connected:
+            self._respond(400, {"error": f"Connection '{name}' not found."})
+            return
+
+        table_name = data.get("table", "export")
+        if_exists = data.get("ifExists", "replace")
+
+        result = write_table(conn, state.df, table_name, if_exists=if_exists)
+        self._respond(200, result)
+
+    def _handle_db_connections(self):
+        self._respond(200, {
+            "connections": state.connections.list_connections(),
+        })
 
     # ── Response Helper ──
 

@@ -288,3 +288,120 @@ export interface ModelData {
   tier: string;
   recommended?: boolean;
 }
+
+// ── Database ──
+
+export interface DbEngineInfo {
+  id: string;
+  name: string;
+  icon: string;
+  defaultPort: number | null;
+}
+
+export interface DbTableInfo {
+  name: string;
+  schema: string | null;
+  columns: { name: string; type: string; nullable: boolean; default: string | null }[];
+  primaryKey: string[];
+  foreignKeys: { columns: string[]; referredTable: string; referredColumns: string[] }[];
+  indexes: { name: string; columns: string[]; unique: boolean }[];
+  rowCount: number | null;
+  isView: boolean;
+}
+
+export interface DbConnectionInfo {
+  name: string;
+  engineType: string;
+  connected: boolean;
+  error: string | null;
+}
+
+export async function getDbEngines(): Promise<{ engines: DbEngineInfo[] }> {
+  return request("/db/engines", "POST");
+}
+
+export async function connectDatabase(params: {
+  engineType: string;
+  name?: string;
+  host?: string;
+  port?: number;
+  database?: string;
+  user?: string;
+  password?: string;
+  path?: string;
+  uri?: string;
+}): Promise<{
+  success: boolean;
+  connection: DbConnectionInfo;
+  tables?: DbTableInfo[];
+  error?: string;
+}> {
+  return request("/db/connect", "POST", params);
+}
+
+export async function testDbConnection(params: {
+  engineType: string;
+  host?: string;
+  port?: number;
+  database?: string;
+  user?: string;
+  password?: string;
+  path?: string;
+  uri?: string;
+}): Promise<{ success: boolean; message?: string; error?: string }> {
+  return request("/db/test", "POST", params);
+}
+
+export async function disconnectDatabase(name: string): Promise<{ success: boolean }> {
+  return request("/db/disconnect", "POST", { name });
+}
+
+export async function getDbTables(
+  connection: string,
+  schema?: string
+): Promise<{ tables: DbTableInfo[] }> {
+  return request("/db/tables", "POST", { connection, schema });
+}
+
+export async function readDbTable(params: {
+  connection: string;
+  table: string;
+  columns?: string[];
+  limit?: number;
+  where?: string;
+}): Promise<{
+  success: boolean;
+  datasetName: string;
+  profile: ProfileData;
+  preview: Record<string, unknown>[];
+  versions: VersionData[];
+}> {
+  return request("/db/read", "POST", params);
+}
+
+export async function readDbQuery(params: {
+  connection: string;
+  query: string;
+}): Promise<{
+  success: boolean;
+  datasetName: string;
+  profile: ProfileData;
+  preview: Record<string, unknown>[];
+  versions: VersionData[];
+  rowCount: number;
+  colCount: number;
+}> {
+  return request("/db/read-query", "POST", params);
+}
+
+export async function writeToDb(params: {
+  connection: string;
+  table: string;
+  ifExists?: "replace" | "append" | "fail";
+}): Promise<{ success: boolean; table?: string; rows?: number; message?: string; error?: string }> {
+  return request("/db/write", "POST", params);
+}
+
+export async function getDbConnections(): Promise<{ connections: DbConnectionInfo[] }> {
+  return request("/db/connections", "POST");
+}
