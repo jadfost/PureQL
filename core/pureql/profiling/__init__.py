@@ -121,7 +121,7 @@ def profile(df: pl.DataFrame) -> DataProfile:
                 )
 
         # Check for mixed date formats in string columns
-        if col.dtype == pl.Utf8 and non_null.height > 0:
+        if col.dtype == pl.Utf8 and non_null.len() > 0:
             sample = non_null.head(100).to_list()
             date_patterns = _detect_date_patterns(sample)
             if len(date_patterns) > 1:
@@ -133,7 +133,7 @@ def profile(df: pl.DataFrame) -> DataProfile:
         max_val = None
         mean_val = None
         if col.dtype in (pl.Int8, pl.Int16, pl.Int32, pl.Int64, pl.Float32, pl.Float64):
-            if non_null.height > 0:
+            if non_null.len() > 0:
                 min_val = non_null.min()
                 max_val = non_null.max()
                 mean_val = non_null.mean()
@@ -147,7 +147,7 @@ def profile(df: pl.DataFrame) -> DataProfile:
                     upper = q3 + 1.5 * iqr
                     outlier_count = non_null.filter(
                         (non_null < lower) | (non_null > upper)
-                    ).height
+                    ).len()
                     if outlier_count > 0:
                         col_issues.append(f"{outlier_count} outliers detected (IQR method)")
                         issues.append(f"Column '{col_name}': {outlier_count} outliers")

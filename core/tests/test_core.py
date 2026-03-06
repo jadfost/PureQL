@@ -114,8 +114,25 @@ class TestProfiling:
         df = load(sample_csv)
         result = profile(df)
 
-        # Should detect city casing issues
-        assert len(result.issues) > 0
+        # With only 6 rows, casing check requires >100 rows so it won't trigger
+        # But we can verify the profiler runs without errors and detects column types
+        city_col = next(c for c in result.columns if c.name == "city")
+        assert city_col.dtype == "String"
+        assert city_col.unique_count == 5  # Bogotá, bogota, BOGOTA, Medellín, Cali
+
+    def test_issues_detected_large_dataset(self):
+        """With >100 rows, casing inconsistencies should be detected."""
+        import random
+        cities = ["Bogotá", "bogota", "BOGOTA", "Medellín", "medellin", "Cali"]
+        df = pl.DataFrame({
+            "id": list(range(200)),
+            "city": [random.choice(cities) for _ in range(200)],
+        })
+        result = profile(df)
+
+        # Should detect inconsistent casing in city column
+        city_issues = [i for i in result.issues if "city" in i.lower()]
+        assert len(city_issues) > 0
 
     def test_profile_to_dict(self, sample_csv: Path):
         df = load(sample_csv)

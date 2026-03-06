@@ -24,6 +24,8 @@ src-tauri/Frameworks/
 .DS_Store
 
 # Environment
+.venv/
+venv/
 .env
 .env.local
 *.pem
