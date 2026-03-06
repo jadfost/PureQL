@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+target/
+*.egg-info/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Tauri
+src-tauri/target/
+src-tauri/WixTools/
+src-tauri/Frameworks/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Environment
+.env
+.env.local
+*.pem
+
+# Data files (never commit user data)
+*.csv
+*.parquet
+*.xlsx
+*.xls
+*.db
+*.sqlite
+*.duckdb
+
+# OS
+Thumbs.db
+.DS_Store
