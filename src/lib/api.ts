@@ -258,6 +258,9 @@ export interface VersionData {
   operation: string;
   rowsAffected: number;
   parentId: string | null;
+  // optional enriched fields
+  rowCount?: number;
+  storageBytes?: number;
 }
 
 export interface ActionData {

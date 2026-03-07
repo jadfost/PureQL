@@ -9,10 +9,22 @@ interface ChatMessage {
   versionLabel?: string;
 }
 
+export interface ActiveModelInfo {
+  displayName: string;       // "Qwen 2.5 7B" / "GPT-4o"
+  modelId: string;           // "qwen2.5:7b" / "gpt-4o"
+  type: "local" | "api";
+  provider?: string;         // "OpenAI" | "Anthropic" | "Groq" | "Mistral AI"
+  providerColor?: string;    // tailwind text color class
+}
+
 interface AppState {
   // Onboarding
   isFirstLaunch: boolean;
   setFirstLaunch: (v: boolean) => void;
+
+  // Active AI model
+  activeModelInfo: ActiveModelInfo | null;
+  setActiveModelInfo: (m: ActiveModelInfo | null) => void;
 
   // Dataset
   datasetName: string | null;
@@ -52,6 +64,13 @@ export const useAppStore = create<AppState>((set) => ({
   isFirstLaunch: true,
   setFirstLaunch: (v) => set({ isFirstLaunch: v }),
 
+  activeModelInfo: {
+    displayName: "Qwen 2.5 7B",
+    modelId: "qwen2.5:7b",
+    type: "local",
+  },
+  setActiveModelInfo: (m) => set({ activeModelInfo: m }),
+
   datasetName: null,
   setDatasetName: (name) => set({ datasetName: name }),
 
@@ -79,4 +98,4 @@ export const useAppStore = create<AppState>((set) => ({
   setLoading: (v) => set({ isLoading: v }),
 }));
 
-export type { ChatMessage };
+export type { ChatMessage, ActiveModelInfo };
