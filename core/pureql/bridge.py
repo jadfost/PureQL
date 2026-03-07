@@ -20,6 +20,7 @@ from pureql.profiling import profile
 from pureql.cleaning import (
     deduplicate, standardize, fix_formats, fill_nulls,
     remove_outliers, drop_columns, rename_column, filter_rows, auto_clean,
+    fill_nulls_ml, deduplicate_semantic, export_pipeline,
 )
 from pureql.sql import generate_schema, optimize_query, run_query
 from pureql.versioning import VersionStore
@@ -33,6 +34,7 @@ from pureql.ai.ollama_client import (
     is_ollama_installed, is_ollama_running, get_installed_models,
 )
 from pureql.ai.interpreter import interpret, build_context
+from pureql.ai.keychain import save_api_key, get_api_key, delete_api_key, has_api_key
 
 
 # ── Global State ──
@@ -88,8 +90,57 @@ def execute_action(action_type: str, params: dict, target: str) -> dict:
             result = fix_formats(df, column=column, format_type=params.get("format_type", "auto"))
 
         elif action_type == "fill_nulls":
+            strategy = params.get("strategy", "mode")
             column = target.replace("column:", "") if target.startswith("column:") else params.get("column")
-            result = fill_nulls(df, column=column, strategy=params.get("strategy", "mode"))
+
+            if strategy == "ml":
+                cleaned, stats = fill_nulls_ml(
+                    df,
+                    column=column,
+                    strategy=params.get("ml_strategy", "knn"),
+                    n_neighbors=params.get("n_neighbors", 5),
+                )
+                state.df = cleaned
+                prof = profile(state.df)
+                version = state.store.commit(
+                    df=state.df,
+                    operation="fill_nulls_ml",
+                    description=f"ML imputation ({params.get('ml_strategy', 'knn')}): {stats['rows_changed']} values predicted.",
+                    quality_score=prof.quality_score,
+                    rows_affected=stats["rows_changed"],
+                )
+                return {
+                    "success": True,
+                    "description": f"ML imputation: {stats['rows_changed']} values filled using {params.get('ml_strategy', 'knn').upper()}.",
+                    "quality_score": prof.quality_score,
+                    "rows_affected": stats["rows_changed"],
+                    "version": {"id": version.id, "label": version.label},
+                }
+            else:
+                result = fill_nulls(df, column=column, strategy=strategy)
+
+        elif action_type == "deduplicate_semantic":
+            cleaned, stats = deduplicate_semantic(
+                df,
+                subset=params.get("subset"),
+                threshold=params.get("threshold", 0.92),
+            )
+            state.df = cleaned
+            prof = profile(state.df)
+            version = state.store.commit(
+                df=state.df,
+                operation="deduplicate_semantic",
+                description=f"Semantic dedup: removed {stats['removed']} near-duplicate rows (threshold: {stats['threshold']}).",
+                quality_score=prof.quality_score,
+                rows_affected=stats["removed"],
+            )
+            return {
+                "success": True,
+                "description": f"Removed {stats['removed']} semantically duplicate rows.",
+                "quality_score": prof.quality_score,
+                "rows_affected": stats["removed"],
+                "version": {"id": version.id, "label": version.label},
+            }
 
         elif action_type == "remove_outliers":
             column = target.replace("column:", "") if target.startswith("column:") else params.get("column", "")
@@ -261,6 +312,8 @@ class PureQLHandler(BaseHTTPRequestHandler):
                 self._handle_settings(data)
             elif path == "/export":
                 self._handle_export(data)
+            elif path == "/export/pipeline":
+                self._handle_export_pipeline(data)
             elif path == "/auto-clean":
                 self._handle_auto_clean()
             elif path == "/schema":
@@ -287,6 +340,12 @@ class PureQLHandler(BaseHTTPRequestHandler):
                 self._handle_db_write(data)
             elif path == "/db/connections":
                 self._handle_db_connections()
+            elif path == "/diff":
+                self._handle_diff(data)
+            elif path == "/apikey/save":
+                self._handle_apikey_save(data)
+            elif path == "/apikey/delete":
+                self._handle_apikey_delete(data)
             else:
                 self._respond(404, {"error": f"Unknown endpoint: {path}"})
         except Exception as e:
@@ -304,6 +363,9 @@ class PureQLHandler(BaseHTTPRequestHandler):
                 "aiModel": state.ai_model,
                 "aiProvider": state.ai_provider,
             })
+        elif self.path.startswith("/apikey/"):
+            provider = self.path.split("/apikey/")[1].split("/")[0]
+            self._respond(200, {"provider": provider, "hasKey": has_api_key(provider)})
         else:
             self._respond(404, {"error": "Not found"})
 
@@ -480,13 +542,18 @@ class PureQLHandler(BaseHTTPRequestHandler):
             state.ai_model = data["model"]
         if "provider" in data:
             state.ai_provider = data["provider"]
-        if "apiKey" in data:
+        if "apiKey" in data and data["apiKey"]:
+            # Persist to OS keychain and keep in memory
+            save_api_key(state.ai_provider, data["apiKey"])
             state.ai_api_key = data["apiKey"]
+        elif state.ai_api_key is None and state.ai_provider != "ollama":
+            # Try to load from keychain on first use
+            state.ai_api_key = get_api_key(state.ai_provider)
 
         self._respond(200, {
             "model": state.ai_model,
             "provider": state.ai_provider,
-            "hasApiKey": state.ai_api_key is not None,
+            "hasApiKey": has_api_key(state.ai_provider) or state.ai_api_key is not None,
         })
 
     def _handle_export(self, data: dict):
@@ -495,6 +562,20 @@ class PureQLHandler(BaseHTTPRequestHandler):
             return
         fmt = data.get("format", "csv")
         path = data.get("path", f"export.{fmt}")
+
+        if fmt == "py":
+            try:
+                script = export_pipeline(
+                    versions=state.store.get_timeline(),
+                    source_path=data.get("sourcePath") or state.dataset_name,
+                    output_path=path,
+                    table_name=data.get("tableName") or "data",
+                )
+                self._respond(200, {"success": True, "path": path, "format": fmt})
+            except Exception as e:
+                self._respond(500, {"success": False, "error": str(e)})
+            return
+
         _export_data(state.df, fmt, path, data.get("tableName"))
         self._respond(200, {"success": True, "path": path, "format": fmt})
 
@@ -734,6 +815,54 @@ class PureQLHandler(BaseHTTPRequestHandler):
         self._respond(200, {
             "connections": state.connections.list_connections(),
         })
+
+    def _handle_diff(self, data: dict):
+        """Return a diff summary between two versions."""
+        version_a = data.get("versionA", "")
+        version_b = data.get("versionB", "")
+        if not version_a or not version_b:
+            self._respond(400, {"error": "Missing versionA or versionB"})
+            return
+        diff = state.store.diff(version_a, version_b)
+        self._respond(200, diff)
+
+    def _handle_export_pipeline(self, data: dict):
+        """Export the full session as a reproducible Python pipeline script."""
+        path = data.get("path", "pipeline.py")
+        table_name = data.get("tableName", "data")
+        source_path = data.get("sourcePath") or state.dataset_name
+
+        try:
+            script = export_pipeline(
+                versions=state.store.get_timeline(),
+                source_path=source_path,
+                output_path=path,
+                table_name=table_name,
+            )
+            self._respond(200, {"success": True, "path": path, "script": script[:500] + "..."})
+        except Exception as e:
+            self._respond(500, {"success": False, "error": str(e)})
+
+    def _handle_apikey_save(self, data: dict):
+        """Save an API key to the OS keychain."""
+        provider = data.get("provider", "")
+        api_key = data.get("apiKey", "")
+        if not provider or not api_key:
+            self._respond(400, {"error": "Missing 'provider' or 'apiKey'"})
+            return
+        save_api_key(provider, api_key)
+        # Store in session state for immediate use
+        state.ai_api_key = api_key
+        self._respond(200, {"success": True, "provider": provider})
+
+    def _handle_apikey_delete(self, data: dict):
+        """Delete an API key from the OS keychain."""
+        provider = data.get("provider", "")
+        if not provider:
+            self._respond(400, {"error": "Missing 'provider'"})
+            return
+        delete_api_key(provider)
+        self._respond(200, {"success": True, "provider": provider})
 
     # ── Response Helper ──
 

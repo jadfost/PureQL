@@ -207,6 +207,15 @@ def check_connection(uri: str) -> dict:
         return {"success": False, "error": str(e)}
 
 
+def test_connection(uri: str) -> dict:
+    """Alias for check_connection. Kept for backwards compatibility."""
+    return check_connection(uri)
+
+
+# Prevent pytest from collecting this as a test function
+test_connection.__test__ = False  # type: ignore[attr-defined]
+
+
 def disconnect(conn: DatabaseConnection):
     """Close a database connection."""
     if conn._engine is not None:

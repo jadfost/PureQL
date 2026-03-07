@@ -4,7 +4,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct HardwareInfo {
@@ -15,6 +14,7 @@ struct HardwareInfo {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct ProfileResult {
     row_count: usize,
     col_count: usize,

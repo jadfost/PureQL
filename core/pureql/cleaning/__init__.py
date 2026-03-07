@@ -11,6 +11,11 @@ from typing import Optional
 import polars as pl
 from rapidfuzz import fuzz
 
+# ML and semantic sub-modules (lazy imports to avoid hard dependencies)
+from pureql.cleaning.ml_imputation import fill_nulls_ml
+from pureql.cleaning.semantic_dedup import deduplicate_semantic
+from pureql.cleaning.pipeline_exporter import export_pipeline
+
 
 @dataclass
 class CleaningResult:

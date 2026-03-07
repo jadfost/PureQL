@@ -12,9 +12,7 @@ __pycache__/
 .ruff_cache/
 
 # Tauri
-src-tauri/target/
-src-tauri/WixTools/
-src-tauri/Frameworks/
+src-tauri/**/*
 
 # IDE
 .vscode/

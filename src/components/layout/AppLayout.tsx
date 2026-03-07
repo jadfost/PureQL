@@ -1,11 +1,14 @@
+import { useState } from "react";
 import { ChatPanel } from "../chat/ChatPanel";
 import { DataPreview } from "../preview/DataPreview";
 import { VersionTimeline } from "../timeline/VersionTimeline";
 import { FileDropZone } from "./FileDropZone";
+import { DatabaseModal } from "../database/DatabaseModal";
 import { useAppStore } from "../../stores/appStore";
 
 export function AppLayout() {
   const { datasetName, profile, versions } = useAppStore();
+  const [showDB, setShowDB] = useState(false);
 
   return (
     <div className="flex flex-col h-screen bg-pureql-dark">
@@ -29,6 +32,13 @@ export function AppLayout() {
               {profile.rowCount.toLocaleString()} rows × {profile.colCount} cols
             </span>
           )}
+          <button
+            onClick={() => setShowDB(true)}
+            className="text-[10px] px-2.5 py-1 rounded border border-pureql-border text-zinc-400 hover:text-zinc-200 hover:border-zinc-500 transition flex items-center gap-1"
+            title="Connect to database"
+          >
+            🗄 Database
+          </button>
         </div>
       </header>
 
@@ -48,6 +58,9 @@ export function AppLayout() {
           <VersionTimeline />
         </div>
       )}
+
+      {/* Database Modal */}
+      {showDB && <DatabaseModal onClose={() => setShowDB(false)} />}
     </div>
   );
 }
