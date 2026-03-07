@@ -5,20 +5,26 @@ export default {
     extend: {
       colors: {
         pureql: {
-          accent: "#10b981",
-          "accent-dim": "#10b98115",
-          purple: "#8b5cf6",
-          blue: "#3b82f6",
-          orange: "#f59e0b",
-          pink: "#ec4899",
-          cyan: "#06b6d4",
-          dark: "#09090b",
-          panel: "#0c0e14",
-          card: "#12151c",
-          border: "#1e2130",
+          accent: "#6366f1",       // indigo-500 — sofisticado, moderno
+          "accent-dim": "#eef2ff", // indigo-50 — fondo sutil para elementos activos
+          purple: "#7c3aed",
+          blue: "#2563eb",
+          orange: "#ea580c",
+          pink: "#db2777",
+          cyan: "#0891b2",
+          dark: "#fafafa",         // fondo principal (zinc-50)
+          panel: "#f4f4f5",        // fondo secundario (zinc-100)
+          card: "#ffffff",         // superficies elevadas (blanco puro)
+          border: "#e4e4e7",       // bordes (zinc-200)
         },
       },
       fontFamily: {
+        sans: [
+          "Instrument Sans",
+          "system-ui",
+          "-apple-system",
+          "sans-serif",
+        ],
         mono: [
           "JetBrains Mono",
           "Fira Code",

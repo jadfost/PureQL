@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { sendChat, autoClean } from "../../lib/api";
+import { MessageSquare, ArrowUp, Check, Sparkles } from "lucide-react";
 
 export function ChatPanel() {
   const [input, setInput] = useState("");
@@ -32,16 +33,13 @@ export function ChatPanel() {
     try {
       const res = await sendChat(text);
 
-      // Update preview and versions from response
       if (res.preview) setPreviewData(res.preview);
       if (res.versions) setVersions(res.versions);
 
-      // Check for SQL in results
       for (const r of res.results) {
         if (r.sql) setCurrentSQL(r.sql);
       }
 
-      // Get latest version label
       const latestVersion = res.versions?.[res.versions.length - 1];
 
       addMessage({
@@ -109,8 +107,9 @@ export function ChatPanel() {
             disabled={isLoading}
             className="text-[9px] px-2 py-0.5 rounded bg-pureql-accent-dim text-pureql-accent 
                        border border-pureql-accent/30 hover:bg-pureql-accent/20 
-                       disabled:opacity-50 transition"
+                       disabled:opacity-50 transition flex items-center gap-1"
           >
+            <Sparkles className="w-2.5 h-2.5" />
             Auto Clean
           </button>
         )}
@@ -120,7 +119,7 @@ export function ChatPanel() {
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {messages.length === 0 && (
           <div className="text-center text-zinc-600 text-xs mt-8 px-4 leading-relaxed">
-            <div className="text-lg mb-2">💬</div>
+            <MessageSquare className="mx-auto mb-2 w-5 h-5 text-zinc-400" strokeWidth={1.5} />
             Talk to your data.
             <br />
             <span className="text-zinc-500">
@@ -144,8 +143,9 @@ export function ChatPanel() {
             </div>
             {msg.versionLabel && (
               <div className="flex justify-center mt-1">
-                <span className="text-[8px] text-pureql-accent bg-pureql-accent-dim px-2 py-0.5 rounded">
-                  ✓ {msg.versionLabel}
+                <span className="text-[8px] text-pureql-accent bg-pureql-accent-dim px-2 py-0.5 rounded flex items-center gap-1">
+                  <Check className="w-2.5 h-2.5" />
+                  {msg.versionLabel}
                 </span>
               </div>
             )}
@@ -182,10 +182,10 @@ export function ChatPanel() {
             onClick={handleSend}
             disabled={isLoading || !input.trim()}
             className="px-3 py-2 bg-pureql-accent-dim border border-pureql-accent/30 
-                       rounded-md text-pureql-accent text-xs hover:bg-pureql-accent/20 
-                       disabled:opacity-30 transition"
+                       rounded-md text-pureql-accent hover:bg-pureql-accent/20 
+                       disabled:opacity-30 transition flex items-center justify-center"
           >
-            ↑
+            <ArrowUp className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>

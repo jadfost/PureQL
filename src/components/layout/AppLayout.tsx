@@ -5,6 +5,7 @@ import { VersionTimeline } from "../timeline/VersionTimeline";
 import { FileDropZone } from "./FileDropZone";
 import { DatabaseModal } from "../database/DatabaseModal";
 import { useAppStore } from "../../stores/appStore";
+import { Hexagon, Database } from "lucide-react";
 
 export function AppLayout() {
   const { datasetName, profile, versions } = useAppStore();
@@ -15,7 +16,7 @@ export function AppLayout() {
       {/* Title Bar */}
       <header className="flex items-center px-4 h-10 border-b border-pureql-border bg-pureql-dark shrink-0">
         <div className="flex items-center gap-2">
-          <span className="text-pureql-accent font-bold text-sm">⬡</span>
+          <Hexagon className="text-pureql-accent w-4 h-4" strokeWidth={2} />
           <span className="text-xs font-semibold text-zinc-300">PureQL</span>
         </div>
         {datasetName && (
@@ -34,10 +35,11 @@ export function AppLayout() {
           )}
           <button
             onClick={() => setShowDB(true)}
-            className="text-[10px] px-2.5 py-1 rounded border border-pureql-border text-zinc-400 hover:text-zinc-200 hover:border-zinc-500 transition flex items-center gap-1"
+            className="text-[10px] px-2.5 py-1 rounded border border-pureql-border text-zinc-400 hover:text-zinc-200 hover:border-zinc-500 transition flex items-center gap-1.5"
             title="Connect to database"
           >
-            🗄 Database
+            <Database className="w-3 h-3" />
+            Database
           </button>
         </div>
       </header>

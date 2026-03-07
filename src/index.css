@@ -1,22 +1,46 @@
-@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wdth,wght@0,75..100,400..700;1,75..100,400..700&family=JetBrains+Mono:wght@400;500;600;700&display=swap");
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Base ────────────────────────────────────────────────────────────────── */
 :root {
-  font-family: "JetBrains Mono", monospace;
+  font-family: "Instrument Sans", system-ui, -apple-system, sans-serif;
   font-size: 14px;
-  color-scheme: dark;
+  color-scheme: light;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background: #09090b;
+  background: #fafafa;
+  color: #18181b;
 }
 
-/* Custom scrollbar */
+/* ─── Zinc text overrides para tema claro ─────────────────────────────────
+   En el tema oscuro original, zinc-300/400 son textos claros sobre fondo negro.
+   En tema claro, los remapeamos a tonos oscuros equivalentes para mantener
+   la jerarquía visual sin tocar cada componente.
+────────────────────────────────────────────────────────────────────────────── */
+.text-zinc-200 { color: #18181b; } /* zinc-900 — texto primario */
+.text-zinc-300 { color: #27272a; } /* zinc-800 — texto principal */
+.text-zinc-400 { color: #52525b; } /* zinc-600 — texto secundario */
+/* zinc-500 (#71717a) se queda igual — es gris medio, funciona en ambos temas */
+.text-zinc-600 { color: #a1a1aa; } /* zinc-400 — texto atenuado */
+.text-zinc-700 { color: #d4d4d8; } /* zinc-300 — texto muy atenuado */
+
+/* ─── Colores semánticos más legibles sobre fondo claro ───────────────────── */
+.text-emerald-400 { color: #059669; } /* emerald-600 */
+.text-green-400   { color: #16a34a; } /* green-600 */
+.text-red-400     { color: #dc2626; } /* red-600 */
+.text-amber-400   { color: #b45309; } /* amber-700 */
+.text-pink-400    { color: #db2777; } /* pink-600 */
+.text-orange-400  { color: #ea580c; } /* orange-600 */
+
+/* ─── Scrollbar (tema claro) ──────────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -25,14 +49,30 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #27272a;
+  background: #d4d4d8;
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+  background: #a1a1aa;
 }
 
-/* Drag region for Tauri window */
+/* ─── Drag region para ventana Tauri ─────────────────────────────────────── */
 [data-tauri-drag-region] {
   -webkit-app-region: drag;
+}
+
+/* ─── Focus ring con color del acento ────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+/* ─── Selects nativos legibles en tema claro ─────────────────────────────── */
+select {
+  color: #27272a;
+}
+
+select option {
+  background: #ffffff;
+  color: #27272a;
 }

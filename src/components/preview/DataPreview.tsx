@@ -4,6 +4,7 @@ import { StatsPanel } from "./StatsPanel";
 import { DiffPanel } from "./DiffPanel";
 import { ExportDialog } from "../export/ExportDialog";
 import { runSQL, generateSchema, optimizeSQL } from "../../lib/api";
+import { Upload, Play, Check } from "lucide-react";
 
 export function DataPreview() {
   const {
@@ -92,9 +93,10 @@ export function DataPreview() {
           {datasetName && (
             <button
               onClick={() => setShowExport(true)}
-              className="text-[10px] px-2.5 py-1 rounded border border-pureql-border text-zinc-400 hover:text-zinc-200 hover:border-zinc-500 transition flex items-center gap-1"
+              className="text-[10px] px-2.5 py-1 rounded border border-pureql-border text-zinc-400 hover:text-zinc-200 hover:border-zinc-500 transition flex items-center gap-1.5"
             >
-              ↑ Export
+              <Upload className="w-3 h-3" />
+              Export
             </button>
           )}
         </div>
@@ -188,15 +190,19 @@ export function DataPreview() {
             <div className="flex items-center justify-between mt-1.5">
               {sqlError && <span className="text-[10px] text-red-400">{sqlError}</span>}
               {!sqlError && sqlRows && (
-                <span className="text-[10px] text-emerald-400">✓ {sqlRows.length} rows returned</span>
+                <span className="text-[10px] text-emerald-400 flex items-center gap-1">
+                  <Check className="w-3 h-3" />
+                  {sqlRows.length} rows returned
+                </span>
               )}
               {!sqlError && !sqlRows && <span />}
               <button
                 onClick={handleRunSQL}
                 disabled={!sqlInput.trim() || sqlRunning}
-                className="text-[10px] px-3 py-1 bg-pureql-accent/20 text-pureql-accent border border-pureql-accent/30 rounded hover:bg-pureql-accent/30 transition disabled:opacity-40"
+                className="text-[10px] px-3 py-1 bg-pureql-accent/20 text-pureql-accent border border-pureql-accent/30 rounded hover:bg-pureql-accent/30 transition disabled:opacity-40 flex items-center gap-1.5"
               >
-                {sqlRunning ? "Running…" : "▶ Run (⌘↵)"}
+                <Play className="w-3 h-3" />
+                {sqlRunning ? "Running…" : "Run (⌘↵)"}
               </button>
             </div>
           </div>

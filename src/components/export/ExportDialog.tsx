@@ -1,3 +1,4 @@
+import { FileText, Check } from "lucide-react";
 import { useState } from "react";
 import { exportData } from "../../lib/api";
 import { useAppStore } from "../../stores/appStore";
@@ -9,7 +10,7 @@ interface Props {
 const FORMATS = [
   {
     id: "csv",
-    icon: "📄",
+    icon: "file",
     label: "CSV",
     desc: "Universal, works in Excel & any tool",
     ext: ".csv",
@@ -195,7 +196,7 @@ export function ExportDialog({ onClose }: Props) {
           {/* Results */}
           {result && (
             <div className="text-[11px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 rounded-md px-3 py-2">
-              ✓ Saved to <span className="font-mono">{result.path}</span>
+              <Check className="w-3 h-3 inline mr-1" />Saved to <span className="font-mono">{result.path}</span>
             </div>
           )}
 

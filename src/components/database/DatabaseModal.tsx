@@ -1,3 +1,4 @@
+import { Database, Check, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { useState, useEffect } from "react";
 import {
   getDbEngines, connectDatabase, testDbConnection, getDbTables, readDbTable,
@@ -117,7 +118,7 @@ export function DatabaseModal({ onClose }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-pureql-border shrink-0">
           <div className="flex items-center gap-2">
-            <span className="text-base">🗄</span>
+            <Database className="w-5 h-5 text-pureql-accent" />
             <span className="text-sm font-semibold text-zinc-200">
               {step === "configure" ? "Connect to Database" : step === "tables" ? "Select Table" : "Preview Data"}
             </span>
@@ -206,7 +207,7 @@ export function DatabaseModal({ onClose }: Props) {
                     ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/25"
                     : "bg-red-500/10 text-red-400 border-red-500/25"
                 }`}>
-                  {testResult.success ? "✓ " + (testResult.message ?? "Connection OK") : "✕ " + testResult.error}
+                  <span className="flex items-center gap-1">{testResult.success ? <><Check className="w-3 h-3" />{testResult.message ?? "Connection OK"}</> : <><X className="w-3 h-3" />{testResult.error}</>}</span>
                 </div>
               )}
 
@@ -278,7 +279,7 @@ export function DatabaseModal({ onClose }: Props) {
                 </button>
                 <button onClick={handleConnect} disabled={connecting}
                   className="px-4 py-1.5 text-[11px] bg-pureql-accent/20 text-pureql-accent border border-pureql-accent/30 rounded hover:bg-pureql-accent/30 transition disabled:opacity-50">
-                  {connecting ? "Connecting…" : "Connect →"}
+                  <span className="flex items-center gap-1">{connecting ? "Connecting…" : <><span>Connect</span><ChevronRight className="w-3 h-3" /></>}</span>
                 </button>
               </div>
             </>
@@ -286,11 +287,11 @@ export function DatabaseModal({ onClose }: Props) {
             <>
               <button onClick={() => setStep("configure")}
                 className="text-[11px] text-zinc-400 hover:text-zinc-200 transition">
-                ← Back
+                <span className="flex items-center gap-1"><ChevronLeft className="w-3 h-3" />Back</span>
               </button>
               <button onClick={handleLoadTable} disabled={!selectedTable || loadingTable}
                 className="px-4 py-1.5 text-[11px] bg-pureql-accent/20 text-pureql-accent border border-pureql-accent/30 rounded hover:bg-pureql-accent/30 transition disabled:opacity-50 disabled:cursor-not-allowed">
-                {loadingTable ? "Loading…" : "Load Table →"}
+                <span className="flex items-center gap-1">{loadingTable ? "Loading…" : <><span>Load Table</span><ChevronRight className="w-3 h-3" /></>}</span>
               </button>
             </>
           )}

@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { loadDataset } from "../../lib/api";
+import { FileUp } from "lucide-react";
 
 export function FileDropZone() {
   const { setDatasetName, setProfile, setPreviewData, setVersions, setLoading } = useAppStore();
@@ -38,7 +39,6 @@ export function FileDropZone() {
         await handleLoad(selected);
       }
     } catch {
-      // Not running in Tauri — show manual input
       const path = prompt("Enter file path (Tauri file dialog not available in dev mode):");
       if (path) await handleLoad(path);
     }
@@ -52,7 +52,6 @@ export function FileDropZone() {
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
-          // In Tauri, file paths come from the drop event
           const files = e.dataTransfer.files;
           if (files.length > 0) {
             // @ts-expect-error — Tauri provides path property
@@ -68,7 +67,12 @@ export function FileDropZone() {
                       : "border-pureql-border hover:border-pureql-accent/40 hover:bg-pureql-accent-dim"
                     }`}
       >
-        <div className="text-4xl mb-4">📄</div>
+        <FileUp
+          className={`mx-auto mb-4 w-10 h-10 transition-colors ${
+            dragOver ? "text-pureql-accent" : "text-zinc-400"
+          }`}
+          strokeWidth={1.5}
+        />
         <div className="text-sm font-semibold text-zinc-300 mb-2">
           Drop your dataset here
         </div>

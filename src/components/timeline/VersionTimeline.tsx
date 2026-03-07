@@ -1,5 +1,6 @@
 import { useAppStore } from "../../stores/appStore";
 import { undo as apiUndo, redo as apiRedo, checkout as apiCheckout } from "../../lib/api";
+import { Undo2, Redo2, ChevronRight } from "lucide-react";
 
 export function VersionTimeline() {
   const {
@@ -54,17 +55,17 @@ export function VersionTimeline() {
       {/* Undo/Redo */}
       <button
         onClick={handleUndo}
-        className="text-[10px] text-zinc-500 hover:text-zinc-300 px-1.5 py-0.5 rounded hover:bg-pureql-card transition shrink-0"
+        className="text-zinc-500 hover:text-zinc-300 p-1 rounded hover:bg-pureql-card transition shrink-0"
         title="Undo (Ctrl+Z)"
       >
-        ↩
+        <Undo2 className="w-3.5 h-3.5" />
       </button>
       <button
         onClick={handleRedo}
-        className="text-[10px] text-zinc-500 hover:text-zinc-300 px-1.5 py-0.5 rounded hover:bg-pureql-card transition shrink-0"
+        className="text-zinc-500 hover:text-zinc-300 p-1 rounded hover:bg-pureql-card transition shrink-0"
         title="Redo (Ctrl+Shift+Z)"
       >
-        ↪
+        <Redo2 className="w-3.5 h-3.5" />
       </button>
 
       <div className="w-px h-4 bg-pureql-border shrink-0" />
@@ -81,13 +82,13 @@ export function VersionTimeline() {
             className={`text-[9px] px-2 py-0.5 rounded transition ${
               currentVersionId === v.id
                 ? "bg-pureql-accent-dim text-pureql-accent border border-pureql-accent/30"
-                : "text-zinc-500 border border-pureql-border hover:text-zinc-400 hover:border-zinc-600"
+                : "text-zinc-500 border border-pureql-border hover:text-zinc-400 hover:border-zinc-400"
             }`}
           >
             {v.label}
           </button>
           {i < versions.length - 1 && (
-            <span className="text-zinc-700 text-[8px]">→</span>
+            <ChevronRight className="w-3 h-3 text-zinc-400" />
           )}
         </div>
       ))}

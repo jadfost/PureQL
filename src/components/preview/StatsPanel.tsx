@@ -1,3 +1,4 @@
+import { AlertTriangle } from "lucide-react";
 import { useAppStore } from "../../stores/appStore";
 
 function QualityBar({ value }: { value: number }) {
@@ -106,7 +107,7 @@ export function StatsPanel() {
           <div className="mt-2 space-y-0.5">
             {issues.slice(0, 5).map((issue, i) => (
               <div key={i} className="text-[10px] text-amber-400/80 flex items-start gap-1">
-                <span className="shrink-0">⚠</span>
+                <AlertTriangle className="w-3 h-3 shrink-0" />
                 <span>{issue}</span>
               </div>
             ))}
@@ -171,7 +172,7 @@ export function StatsPanel() {
                 <div className="mt-1.5 space-y-0.5">
                   {col.issues.map((issue, i) => (
                     <div key={i} className="text-[9px] text-amber-400/70 flex items-center gap-1">
-                      <span>⚠</span>
+                      <AlertTriangle className="w-3 h-3" />
                       <span>{issue}</span>
                     </div>
                   ))}
