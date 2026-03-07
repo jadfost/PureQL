@@ -612,51 +612,71 @@ class PureQLHandler(BaseHTTPRequestHandler):
     # ── Handlers ──
 
     def _handle_upload(self, raw_body: bytes):
-        """Receive a file as base64 JSON (body already read by do_POST) and load it."""
+        """Receive a file as base64 JSON and load it.
+
+        If this is the FIRST dataset (nothing loaded yet), resets state fully.
+        If datasets are already loaded, adds it to the registry without wiping them.
+        """
         import tempfile, base64 as _base64, os, json as _json
 
-        content_type = self.headers.get("Content-Type", "")
-
-        if "application/json" in content_type or True:
-            # Body is always base64 JSON sent by the frontend uploadDataset()
-            try:
-                data = _json.loads(raw_body.decode("utf-8"))
-            except Exception:
-                self._respond(400, {"error": "Invalid JSON in upload body"})
-                return
-            filename   = data.get("filename", "dataset.csv")
-            b64        = data.get("data", "")
-            if not b64:
-                self._respond(400, {"error": "Missing base64 data in upload"})
-                return
-            try:
-                file_bytes = _base64.b64decode(b64)
-            except Exception:
-                self._respond(400, {"error": "Invalid base64 data"})
-                return
-        else:
-            self._respond(400, {"error": "Unsupported Content-Type for upload"})
+        try:
+            data = _json.loads(raw_body.decode("utf-8"))
+        except Exception:
+            self._respond(400, {"error": "Invalid JSON in upload body"})
             return
 
-        # Save to temp file and load
+        filename = data.get("filename", "dataset.csv")
+        b64      = data.get("data", "")
+        if not b64:
+            self._respond(400, {"error": "Missing base64 data in upload"})
+            return
+        try:
+            file_bytes = _base64.b64decode(b64)
+        except Exception:
+            self._respond(400, {"error": "Invalid base64 data"})
+            return
+
         suffix = Path(filename).suffix or ".csv"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="pureql_") as tmp:
             tmp.write(file_bytes)
             tmp_path = tmp.name
 
+        is_first = len(state.datasets) == 0
+
         try:
-            state.reset()
-            state.df = load(tmp_path)
-            state.dataset_name = filename
-            state.datasets[filename] = state.df  # register in multi-dataset registry
-            prof = profile(state.df)
-            state.store.create_initial(state.df, quality_score=prof.quality_score)
+            df = load(tmp_path)
+
+            if is_first:
+                # First file — full reset so versions start clean
+                state.reset()
+                state.df = df
+                state.dataset_name = filename
+                state.datasets[filename] = df
+                prof_dict = state.get_profile(filename, df)
+                state.store.create_initial(df, quality_score=prof_dict.get("qualityScore", 80))
+            else:
+                # Additional file — add to registry, keep existing datasets & versions
+                name = filename
+                base = Path(filename).stem
+                ext  = Path(filename).suffix
+                i = 2
+                while name in state.datasets:
+                    name = f"{base}_{i}{ext}"
+                    i += 1
+                state.datasets[name] = df
+                state.invalidate_dataset(name)
+                prof_dict = state.get_profile(name, df)
+
             self._respond(200, {
                 "success": True,
-                "datasetName": state.dataset_name,
-                "profile": prof.to_dict(),
-                "preview": _get_preview(state.df),
+                "datasetName": filename,
+                "isFirst": is_first,
+                "rowCount": df.height,
+                "colCount": df.width,
+                "profile": prof_dict,
+                "preview": _get_preview(df),
                 "versions": state.store.get_timeline(),
+                "datasets": list(state.datasets.keys()),
             })
         except Exception as e:
             self._respond(400, {"error": str(e)})
@@ -970,7 +990,7 @@ class PureQLHandler(BaseHTTPRequestHandler):
             # execute_action already commits versions for cleaning + query actions.
             # Only do a fallback commit for actions that succeeded but don't self-commit.
             if state.df is not None:
-                prof2 = profile(state.df)
+                fallback_prof = state.get_profile("__result__", state.df)
                 for r in results:
                     already_committed = r.get("version") is not None
                     if r.get("success") and not already_committed and r.get("rows_affected", 0) > 0:
@@ -978,14 +998,14 @@ class PureQLHandler(BaseHTTPRequestHandler):
                             df=state.df,
                             operation=r.get("operation", "transform"),
                             description=r.get("description", "AI operation"),
-                            quality_score=prof2.quality_score,
+                            quality_score=fallback_prof.get("qualityScore", 80),
                             rows_affected=r.get("rows_affected", 0),
                             sql=next((r2.get("sql") for r2 in results if r2.get("sql")), None),
                             datasets_used=list(datasets_for_context.keys()),
                         )
 
-            # Fresh profile after all actions ran
-            final_prof = profile(state.df).to_dict() if state.df is not None else None
+            # Use cached profile for the done event (already computed above)
+            final_prof = state.get_profile("__result__", state.df) if state.df is not None else None
 
             send_event({
                 "type": "done",

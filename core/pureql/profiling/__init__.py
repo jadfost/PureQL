@@ -74,8 +74,16 @@ def profile(df: pl.DataFrame) -> DataProfile:
     issues: list[str] = []
     column_profiles: list[ColumnProfile] = []
 
-    # Detect duplicates
-    duplicate_count = row_count - df.unique().height
+    # Fast duplicate detection via row hash — avoids copying the full DataFrame
+    # pl.all_horizontal on hashed columns is O(n) not O(n log n) like df.unique()
+    if row_count > 0:
+        try:
+            row_hashes = df.hash_rows()
+            duplicate_count = row_count - row_hashes.n_unique()
+        except Exception:
+            duplicate_count = row_count - df.unique().height
+    else:
+        duplicate_count = 0
 
     if duplicate_count > 0:
         dup_pct = round(duplicate_count / row_count * 100, 1)
