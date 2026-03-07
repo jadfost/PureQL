@@ -31,7 +31,7 @@ from pureql.database import (
 )
 from pureql.ai.ollama_client import (
     detect_hardware, get_recommended_models,
-    is_ollama_installed, is_ollama_running, get_installed_models,
+    is_ollama_installed, is_ollama_running, get_installed_models, start_ollama,
 )
 from pureql.ai.interpreter import interpret, build_context
 from pureql.ai.keychain import save_api_key, get_api_key, delete_api_key, has_api_key
@@ -306,6 +306,8 @@ class PureQLHandler(BaseHTTPRequestHandler):
                 self._handle_hardware()
             elif path == "/ollama/status":
                 self._handle_ollama_status()
+            elif path == "/ollama/start":
+                self._handle_ollama_start()
             elif path == "/ollama/models":
                 self._handle_ollama_models()
             elif path == "/settings":
@@ -530,6 +532,42 @@ class PureQLHandler(BaseHTTPRequestHandler):
             "running": is_ollama_running(),
             "models": get_installed_models() if is_ollama_running() else [],
         })
+
+    def _handle_ollama_start(self):
+        """Try to start the Ollama server if installed but not running."""
+        if not is_ollama_installed():
+            self._respond(200, {
+                "started": False,
+                "running": False,
+                "error": "Ollama is not installed. Download it from https://ollama.com",
+            })
+            return
+
+        if is_ollama_running():
+            self._respond(200, {
+                "started": False,   # already was running, no action needed
+                "running": True,
+                "message": "Ollama was already running.",
+            })
+            return
+
+        # Not running — try to start it
+        ok = start_ollama()
+        if ok:
+            self._respond(200, {
+                "started": True,
+                "running": True,
+                "message": "Ollama server started successfully.",
+            })
+        else:
+            self._respond(200, {
+                "started": False,
+                "running": False,
+                "error": (
+                    "Ollama is installed but could not be started automatically. "
+                    "Please run 'ollama serve' in a terminal and try again."
+                ),
+            })
 
     def _handle_ollama_models(self):
         if is_ollama_running():

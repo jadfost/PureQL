@@ -71,7 +71,7 @@ def fill_nulls_ml(
             imputer = KNNImputer(n_neighbors=min(n_neighbors, max(1, _count_complete_rows(arr) - 1)))
         else:  # rf
             rf = RandomForestRegressor(n_estimators=50, random_state=42, n_jobs=-1)
-            imputer = IterativeImputer(estimator=rf, max_iter=5, random_state=42)
+            imputer = IterativeImputer(estimator=rf, max_iter=20, tol=1e-3, random_state=42)
 
         imputed_arr = imputer.fit_transform(arr)
 

@@ -5,8 +5,8 @@ export default {
     extend: {
       colors: {
         pureql: {
-          accent: "#6366f1",       // indigo-500 — sofisticado, moderno
-          "accent-dim": "#eef2ff", // indigo-50 — fondo sutil para elementos activos
+          accent: "#0ea5e9",       // sky-500 — azul/cyan moderno
+          "accent-dim": "#f0f9ff", // sky-50  — fondo sutil para elementos activos
           purple: "#7c3aed",
           blue: "#2563eb",
           orange: "#ea580c",

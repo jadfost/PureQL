@@ -4,75 +4,282 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ─── Base ────────────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════════════════
+   DESIGN TOKENS — Edita aquí, se propaga a toda la app
+   ═══════════════════════════════════════════════════════════════════════════ */
 :root {
+  /* Tipografía */
   font-family: "Instrument Sans", system-ui, -apple-system, sans-serif;
   font-size: 14px;
   color-scheme: light;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* ── Acento principal ── */
+  --accent:          #0ea5e9;   /* sky-500   */
+  --accent-dark:     #0284c7;   /* sky-600   */
+  --accent-deeper:   #0369a1;   /* sky-700   */
+  --accent-light:    #38bdf8;   /* sky-400   */
+  --accent-subtle:   #f0f9ff;   /* sky-50    */
+  --accent-muted:    rgba(14, 165, 233, 0.08);
+  --accent-border:   rgba(14, 165, 233, 0.18);
+  --accent-glow-sm:  0 4px 20px rgba(14, 165, 233, 0.25), 0 1px 6px rgba(14, 165, 233, 0.15);
+  --accent-glow-md:  0 6px 32px rgba(14, 165, 233, 0.35), 0 2px 10px rgba(14, 165, 233, 0.2);
+
+  /* ── Acento secundario (cyan-teal) ── */
+  --accent2:         #06b6d4;   /* cyan-500  */
+  --gradient-accent: linear-gradient(135deg, var(--accent), var(--accent2));
+
+  /* ── Acento de éxito (verde) ── */
+  --success:         #10b981;
+  --success-dark:    #059669;
+  --success-glow:    0 4px 20px rgba(16, 185, 129, 0.28), 0 1px 6px rgba(16, 185, 129, 0.18);
+  --gradient-success: linear-gradient(135deg, var(--success), var(--success-dark));
+
+  /* ── Superficie / Layout ── */
+  --bg:              #f8fafc;   /* fondo principal */
+  --bg-raised:       #ffffff;   /* cards, modales, superficies elevadas */
+  --bg-sunken:       #f1f5f9;   /* inputs, áreas hundidas */
+
+  /* ── Bordes ── */
+  --border:          #e2e8f0;
+  --border-strong:   #cbd5e1;
+
+  /* ── Sombras ── */
+  --shadow-xs:       0 1px 3px rgba(0,0,0,0.06);
+  --shadow-sm:       0 2px 8px rgba(0,0,0,0.06), 0 1px 3px rgba(0,0,0,0.04);
+  --shadow-md:       0 4px 20px rgba(0,0,0,0.08), 0 2px 6px rgba(0,0,0,0.04);
+  --shadow-card:     0 4px 24px rgba(99,102,241,0.07), 0 1px 4px rgba(0,0,0,0.04);
+
+  /* ── Texto ── */
+  --text-primary:    #0f172a;   /* slate-900 */
+  --text-secondary:  #334155;   /* slate-700 */
+  --text-muted:      #64748b;   /* slate-500 */
+  --text-faint:      #94a3b8;   /* slate-400 */
+  --text-ghost:      #cbd5e1;   /* slate-300 */
+
+  /* ── Colores semánticos ── */
+  --danger:          #ef4444;
+  --warning:         #f59e0b;
+  --info:            #3b82f6;
+
+  /* ── Animaciones ── */
+  --ease-spring:     cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out:        cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast:   150ms;
+  --duration-base:   220ms;
+  --duration-slow:   400ms;
 }
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   BASE
+   ═══════════════════════════════════════════════════════════════════════════ */
 body {
   margin: 0;
   min-height: 100vh;
-  background: #fafafa;
-  color: #18181b;
+  background: var(--bg);
+  color: var(--text-primary);
 }
 
-/* ─── Zinc text overrides para tema claro ─────────────────────────────────
-   En el tema oscuro original, zinc-300/400 son textos claros sobre fondo negro.
-   En tema claro, los remapeamos a tonos oscuros equivalentes para mantener
-   la jerarquía visual sin tocar cada componente.
-────────────────────────────────────────────────────────────────────────────── */
-.text-zinc-200 { color: #18181b; } /* zinc-900 — texto primario */
-.text-zinc-300 { color: #27272a; } /* zinc-800 — texto principal */
-.text-zinc-400 { color: #52525b; } /* zinc-600 — texto secundario */
-/* zinc-500 (#71717a) se queda igual — es gris medio, funciona en ambos temas */
-.text-zinc-600 { color: #a1a1aa; } /* zinc-400 — texto atenuado */
-.text-zinc-700 { color: #d4d4d8; } /* zinc-300 — texto muy atenuado */
+/* ── Zinc text overrides: el código usa zinc-* de Tailwind, redirigimos al
+      equivalente legible en tema claro sin tocar cada componente ── */
+.text-zinc-200 { color: var(--text-primary); }
+.text-zinc-300 { color: var(--text-secondary); }
+.text-zinc-400 { color: var(--text-muted); }
+/* zinc-500 (#71717a) coincide bien — se queda */
+.text-zinc-600 { color: var(--text-faint); }
+.text-zinc-700 { color: var(--text-ghost); }
 
-/* ─── Colores semánticos más legibles sobre fondo claro ───────────────────── */
-.text-emerald-400 { color: #059669; } /* emerald-600 */
-.text-green-400   { color: #16a34a; } /* green-600 */
-.text-red-400     { color: #dc2626; } /* red-600 */
-.text-amber-400   { color: #b45309; } /* amber-700 */
-.text-pink-400    { color: #db2777; } /* pink-600 */
-.text-orange-400  { color: #ea580c; } /* orange-600 */
+/* ── Colores semánticos sobre fondo claro ── */
+.text-emerald-400 { color: var(--success-dark); }
+.text-green-400   { color: #16a34a; }
+.text-red-400     { color: var(--danger); }
+.text-amber-400   { color: #b45309; }
+.text-pink-400    { color: #db2777; }
+.text-orange-400  { color: #ea580c; }
 
-/* ─── Scrollbar (tema claro) ──────────────────────────────────────────────── */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: #d4d4d8;
-  border-radius: 3px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #a1a1aa;
+/* ═══════════════════════════════════════════════════════════════════════════
+   COMPONENTES REUTILIZABLES
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Card elevada ── */
+.card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-card);
 }
 
-/* ─── Drag region para ventana Tauri ─────────────────────────────────────── */
-[data-tauri-drag-region] {
-  -webkit-app-region: drag;
+/* ── Botón primario (acento) ── */
+.btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  background: var(--gradient-accent);
+  box-shadow: var(--accent-glow-sm);
+  cursor: pointer;
+  transition: transform var(--duration-fast) var(--ease-spring),
+              box-shadow var(--duration-fast) var(--ease-out);
+}
+.btn-primary:hover  { transform: scale(1.03); box-shadow: var(--accent-glow-md); }
+.btn-primary:active { transform: scale(0.97); }
+
+/* ── Botón primario success ── */
+.btn-success {
+  background: var(--gradient-success);
+  box-shadow: var(--success-glow);
 }
 
-/* ─── Focus ring con color del acento ────────────────────────────────────── */
-:focus-visible {
-  outline: 2px solid #6366f1;
-  outline-offset: 2px;
+/* ── Botón ghost ── */
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-faint);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color var(--duration-fast), color var(--duration-fast);
+}
+.btn-ghost:hover { border-color: var(--accent-border); color: var(--accent); }
+
+/* ── Input base ── */
+.input-base {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-secondary);
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
+}
+.input-base:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
 }
 
-/* ─── Selects nativos legibles en tema claro ─────────────────────────────── */
-select {
-  color: #27272a;
+/* ── Badge acento ── */
+.badge-accent {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  background: var(--accent-muted);
+  border: 1px solid var(--accent-border);
+  border-radius: 99px;
 }
 
-select option {
-  background: #ffffff;
-  color: #27272a;
+/* ── Pill feature ── */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent-dark);
+  background: var(--accent-muted);
+  border: 1px solid var(--accent-border);
+  border-radius: 99px;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ONBOARDING — Fondo inmersivo claro
+   ═══════════════════════════════════════════════════════════════════════════ */
+.onboarding-bg {
+  background: var(--bg);
+  position: relative;
+}
+
+/* Gradiente mesh suave — tres capas de luz para dar profundidad real */
+.onboarding-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 70% 50% at 15% 20%,  rgba(14, 165, 233, 0.09) 0%, transparent 60%),
+    radial-gradient(ellipse 50% 60% at 85% 80%,  rgba(6, 182, 212, 0.07) 0%, transparent 60%),
+    radial-gradient(ellipse 60% 40% at 50% 50%,  rgba(56, 189, 248, 0.05) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Grid de puntos visible */
+.onboarding-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(14,165,233,0.14) 1px, transparent 1px);
+  background-size: 28px 28px;
+  pointer-events: none;
+  z-index: 0;
+  mask-image: radial-gradient(ellipse 85% 85% at 50% 50%, black 40%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 85% 85% at 50% 50%, black 40%, transparent 100%);
+}
+
+/* Orbes animados */
+.onboarding-orb {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 0;
+  filter: blur(1px);
+  animation: orbFloat var(--orb-duration, 8s) ease-in-out infinite;
+  animation-delay: var(--orb-delay, 0s);
+}
+
+@keyframes orbFloat {
+  0%, 100% { transform: translateY(0px) scale(1); opacity: var(--orb-opacity, 0.6); }
+  50%       { transform: translateY(-18px) scale(1.04); opacity: calc(var(--orb-opacity, 0.6) * 0.7); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ANIMACIONES GLOBALES
+   ═══════════════════════════════════════════════════════════════════════════ */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0%   { transform: translateX(-150%); }
+  100% { transform: translateX(350%); }
+}
+
+.animate-fade-up {
+  animation: fadeUp var(--duration-slow) var(--ease-out) forwards;
+}
+
+.animate-fade-up-delay-1 { animation-delay: 0.08s; }
+.animate-fade-up-delay-2 { animation-delay: 0.16s; }
+.animate-fade-up-delay-3 { animation-delay: 0.24s; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SCROLLBAR
+   ═══════════════════════════════════════════════════════════════════════════ */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-ghost); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MISC
+   ═══════════════════════════════════════════════════════════════════════════ */
+[data-tauri-drag-region] { -webkit-app-region: drag; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+select { color: var(--text-secondary); }
+select option { background: var(--bg-raised); color: var(--text-secondary); }

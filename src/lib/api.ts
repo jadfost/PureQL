@@ -195,6 +195,15 @@ export async function getOllamaStatus(): Promise<{
   return request("/ollama/status", "POST");
 }
 
+export async function startOllama(): Promise<{
+  started: boolean;
+  running: boolean;
+  message?: string;
+  error?: string;
+}> {
+  return request("/ollama/start", "POST");
+}
+
 export async function updateSettings(settings: {
   model?: string;
   provider?: string;
