@@ -801,6 +801,39 @@ class PureQLHandler(BaseHTTPRequestHandler):
             raw_response = "".join(full_text)
             interpreted = _parse_response(raw_response)
 
+            # ── Retry if AI returned plain text instead of JSON ──────────────
+            # Local models (e.g. qwen2.5:7b) sometimes ignore the JSON-only rule
+            # and return a descriptive paragraph. When that happens, we make one
+            # more forced call with an ultra-strict prompt so we can actually run
+            # the action.
+            if interpreted.error in ("no_json_found", "json_parse_error") and state.ai_provider == "ollama":
+                send_event({"type": "token", "text": "\n⟳ Reformatting response to JSON…\n"})
+                force_prompt = (
+                    f"The user wants to do this with their data:\n\n"
+                    f"\"{message}\"\n\n"
+                    f"The AI already described the plan:\n\"{interpreted.explanation[:400]}\"\n\n"
+                    f"{context}\n\n"
+                    f"NOW output ONLY a valid JSON object — no markdown, no explanation, no backticks.\n"
+                    f"Use exactly this structure:\n"
+                    f'{{"actions":[{{"type":"query","params":{{"sql":"<DuckDB SQL here>","description":"<short description>"}},"target":"all"}}],"explanation":"<same language as user>","confidence":0.9}}\n\n'
+                    f"CRITICAL: The SQL must reference the exact dataset filenames as table names.\n"
+                    f"Available tables: {list(datasets_for_context.keys())}\n"
+                    f"Example for two tables: SELECT f.name as nombre_mujer, m.name as nombre_hombre FROM \"female_names.csv\" f JOIN \"male_names.csv\" m ON ...\n"
+                    f"Output ONLY the JSON object, nothing else:"
+                )
+                retry_text = []
+                try:
+                    for chunk in generate_stream(
+                        prompt=force_prompt,
+                        model=state.ai_model,
+                        system="You output ONLY valid JSON. No markdown. No explanation. No backticks. Just the JSON object.",
+                        temperature=0.0,
+                    ):
+                        retry_text.append(chunk)
+                    interpreted = _parse_response("".join(retry_text))
+                except Exception:
+                    pass  # Keep the original interpreted (explanation-only) on retry failure
+
             # Execute actions
             results = []
             for action in interpreted.actions:

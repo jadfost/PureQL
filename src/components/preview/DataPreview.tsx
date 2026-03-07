@@ -104,7 +104,6 @@ export function DataPreview() {
   ];
 
   // Use active version's rowCount if available, otherwise profile total
-  const activeVersion = versions.find((v) => v.id === currentVersionId);
   const currentTotalRows = activeVersion?.rowCount ?? profile?.rowCount ?? 0;
   const displayRows = sqlRows ?? previewData;
 
