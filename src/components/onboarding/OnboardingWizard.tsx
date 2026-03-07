@@ -348,88 +348,168 @@ function DownloadStep({ modelName, onDone }: { modelName: string; onDone: () => 
   const [progress, setProgress] = useState<PullProgress>({
     status: "Starting download...", pct: 0, done: false,
   });
-  const [error, setError] = useState<string | null>(null);
-  const started = useRef(false);
+  const [error, setError]       = useState<string | null>(null);
+  const [speed, setSpeed]       = useState<number>(0);   // bytes/sec
+  const [eta, setEta]           = useState<number | null>(null); // seconds remaining
+  const started    = useRef(false);
+  const lastBytes  = useRef(0);
+  const lastTime   = useRef(Date.now());
 
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-
     pullModelWithProgress(modelName, (p) => {
+      // Calculate speed & ETA from byte deltas
+      if ((p.completed ?? 0) > 0 && (p.total ?? 0) > 0) {
+        const now      = Date.now();
+        const dt       = (now - lastTime.current) / 1000;
+        const db       = (p.completed ?? 0) - lastBytes.current;
+        if (dt > 0.5 && db > 0) {
+          const bps = db / dt;
+          setSpeed(bps);
+          const remaining = (p.total ?? 0) - (p.completed ?? 0);
+          setEta(bps > 0 ? Math.round(remaining / bps) : null);
+          lastBytes.current = p.completed ?? 0;
+          lastTime.current  = now;
+        }
+      }
       setProgress(p);
-      if (p.done) setTimeout(onDone, 800); // pequeña pausa antes de avanzar
+      if (p.done) setTimeout(onDone, 900);
     }).catch((err) => {
       setError(err instanceof Error ? err.message : "Download failed");
     });
   }, [modelName, onDone]);
 
   const statusLabel: Record<string, string> = {
-    "pulling manifest":  "Fetching model manifest...",
-    "downloading":       "Downloading model weights...",
-    "verifying sha256":  "Verifying integrity...",
-    "writing manifest":  "Writing manifest...",
-    "removing any unused layers": "Cleaning up...",
-    "success":           "Model ready!",
+    "pulling manifest":             "Fetching manifest…",
+    "downloading":                  "Downloading weights…",
+    "verifying sha256":             "Verifying integrity…",
+    "writing manifest":             "Writing manifest…",
+    "removing any unused layers":   "Cleaning up…",
+    "success":                      "Model ready!",
   };
-
   const friendlyStatus = statusLabel[progress.status] ?? progress.status;
 
+  const formatEta = (sec: number) => {
+    if (sec < 60)  return `${sec}s left`;
+    if (sec < 3600) return `${Math.round(sec / 60)}m left`;
+    return `${(sec / 3600).toFixed(1)}h left`;
+  };
+  const formatSpeed = (bps: number) => {
+    if (bps < 1024)       return `${bps.toFixed(0)} B/s`;
+    if (bps < 1024**2)    return `${(bps/1024).toFixed(1)} KB/s`;
+    return `${(bps/1024**2).toFixed(1)} MB/s`;
+  };
+
+  const isDownloading = progress.status === "downloading" && !progress.done;
+
   return (
-    <div className="w-full max-w-sm animate-fade-up">
-      <div className="card p-6">
-        {/* Icono + nombre del modelo */}
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+    <div className="w-full max-w-md animate-fade-up">
+      <div className="card p-7">
+
+        {/* Model identity */}
+        <div className="flex items-center gap-4 mb-7">
+          <div className="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 relative"
             style={{ background: "var(--accent-muted)", border: "1px solid var(--accent-border)" }}>
             {progress.done
-              ? <CheckCircle2 className="w-5 h-5" style={{ color: "var(--success)" }} />
-              : <Download className="w-5 h-5 animate-bounce" style={{ color: "var(--accent)", animationDuration: "1.2s" }} />
+              ? <CheckCircle2 className="w-6 h-6" style={{ color: "var(--success)" }} />
+              : <Download className="w-6 h-6" style={{ color: "var(--accent)", animation: "bounce 1.4s ease-in-out infinite" }} />
             }
+            {/* Pulsing ring while downloading */}
+            {!progress.done && (
+              <span className="absolute inset-0 rounded-2xl animate-ping opacity-20"
+                style={{ background: "var(--accent)" }} />
+            )}
           </div>
-          <div>
-            <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{modelName}</div>
-            <div className="text-xs" style={{ color: "var(--text-faint)" }}>via Ollama — local only</div>
+          <div className="flex-1 min-w-0">
+            <div className="text-base font-bold truncate" style={{ color: "var(--text-primary)" }}>
+              {modelName}
+            </div>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-xs" style={{ color: "var(--text-faint)" }}>via Ollama</span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded font-semibold"
+                style={{ background: "var(--accent-muted)", color: "var(--accent)" }}>
+                LOCAL ONLY
+              </span>
+            </div>
+          </div>
+          {/* Percentage badge */}
+          <div className="shrink-0 text-right">
+            <span className="text-2xl font-black font-mono tabular-nums"
+              style={{ color: progress.done ? "var(--success)" : "var(--accent)" }}>
+              {progress.done ? "100" : progress.pct}
+            </span>
+            <span className="text-sm font-bold" style={{ color: "var(--text-faint)" }}>%</span>
           </div>
         </div>
 
-        {/* Barra de progreso */}
-        <div className="mb-3">
-          <div className="flex justify-between items-center mb-1.5">
-            <span className="text-xs" style={{ color: "var(--text-muted)" }}>{friendlyStatus}</span>
-            <span className="text-xs font-mono font-semibold" style={{ color: "var(--accent)" }}>
-              {progress.done ? "100%" : `${progress.pct}%`}
-            </span>
-          </div>
-          <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--bg-sunken)" }}>
-            <div
-              className="h-full rounded-full transition-all duration-300"
+        {/* Progress bar — thick */}
+        <div className="mb-4">
+          <div className="h-3 rounded-full overflow-hidden" style={{ background: "var(--bg-sunken)" }}>
+            <div className="h-full rounded-full transition-all duration-500 ease-out"
               style={{
-                width: `${progress.pct}%`,
-                background: progress.done
-                  ? "var(--gradient-success)"
-                  : "var(--gradient-accent)",
-                boxShadow: progress.done
-                  ? "0 0 8px rgba(16,185,129,0.4)"
-                  : "0 0 8px rgba(14,165,233,0.4)",
+                width: `${progress.done ? 100 : progress.pct}%`,
+                background: progress.done ? "var(--gradient-success)" : "var(--gradient-accent)",
+                boxShadow: progress.done ? "0 0 12px rgba(16,185,129,0.5)" : "0 0 12px rgba(14,165,233,0.5)",
               }}
             />
           </div>
         </div>
 
-        {/* Bytes descargados */}
-        {progress.total > 0 && !progress.done && (
-          <div className="text-xs font-mono text-right" style={{ color: "var(--text-ghost)" }}>
-            {formatBytes(progress.completed ?? 0)} / {formatBytes(progress.total)}
+        {/* Status row */}
+        <div className="flex items-center justify-between mb-5">
+          <span className="text-sm font-medium" style={{ color: "var(--text-muted)" }}>
+            {friendlyStatus}
+          </span>
+          {isDownloading && speed > 0 && (
+            <span className="text-xs font-mono font-semibold px-2 py-0.5 rounded"
+              style={{ background: "var(--accent-muted)", color: "var(--accent)" }}>
+              {formatSpeed(speed)}
+            </span>
+          )}
+        </div>
+
+        {/* Stats grid */}
+        {(progress.total ?? 0) > 0 && (
+          <div className="grid grid-cols-3 gap-3">
+            {/* Downloaded */}
+            <div className="flex flex-col items-center p-3 rounded-xl"
+              style={{ background: "var(--bg-sunken)", border: "1px solid var(--border)" }}>
+              <span className="text-[10px] font-semibold uppercase tracking-wide mb-1"
+                style={{ color: "var(--text-faint)" }}>Downloaded</span>
+              <span className="text-sm font-bold font-mono" style={{ color: "var(--text-primary)" }}>
+                {formatBytes(progress.completed ?? 0)}
+              </span>
+            </div>
+            {/* Total size */}
+            <div className="flex flex-col items-center p-3 rounded-xl"
+              style={{ background: "var(--bg-sunken)", border: "1px solid var(--border)" }}>
+              <span className="text-[10px] font-semibold uppercase tracking-wide mb-1"
+                style={{ color: "var(--text-faint)" }}>Total size</span>
+              <span className="text-sm font-bold font-mono" style={{ color: "var(--text-primary)" }}>
+                {formatBytes(progress.total ?? 0)}
+              </span>
+            </div>
+            {/* ETA */}
+            <div className="flex flex-col items-center p-3 rounded-xl"
+              style={{ background: "var(--bg-sunken)", border: "1px solid var(--border)" }}>
+              <span className="text-[10px] font-semibold uppercase tracking-wide mb-1"
+                style={{ color: "var(--text-faint)" }}>ETA</span>
+              <span className="text-sm font-bold font-mono" style={{ color: "var(--text-primary)" }}>
+                {progress.done ? "Done!" : (eta != null ? formatEta(eta) : "—")}
+              </span>
+            </div>
           </div>
         )}
+
       </div>
 
-      {/* Info de privacidad */}
+      {/* Privacy note */}
       <div className="mt-4 flex items-start gap-2 px-1">
         <Wifi className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: "var(--text-ghost)" }} />
         <p className="text-xs leading-relaxed" style={{ color: "var(--text-ghost)" }}>
-          The model is downloaded once and stored locally. After this, PureQL works{" "}
-          <span style={{ color: "var(--text-faint)", fontWeight: 500 }}>100% offline.</span>
+          Downloaded once, stored locally. After this, PureQL works{" "}
+          <span style={{ color: "var(--text-faint)", fontWeight: 600 }}>100% offline.</span>
         </p>
       </div>
 
@@ -497,7 +577,22 @@ export function OnboardingWizard({ onComplete }: Props) {
     if (currentStepDef?.id !== "hardware") return;
     setLoading(true);
     detectHardware()
-      .then((res) => { setHardware(res.hardware); setModels(res.recommendedModels); setLoading(false); setTimeout(() => setStep(s => s + 1), 1800); })
+      .then((res) => {
+        setHardware(res.hardware);
+        setModels(res.recommendedModels);
+        setLoading(false);
+
+        // Auto-select the recommended model (or first one) as default
+        if (res.recommendedModels?.length > 0) {
+          const recommended = res.recommendedModels.find((m: ModelData) => m.recommended) ?? res.recommendedModels[0];
+          if (recommended) {
+            setSelectedModel(recommended.name);
+            updateSettings({ model: recommended.name }).catch(() => {});
+          }
+        }
+
+        setTimeout(() => setStep(s => s + 1), 1800);
+      })
       .catch(() => { setLoading(false); setTimeout(() => setStep(s => s + 1), 1000); });
   }, [step]);
 
@@ -564,7 +659,24 @@ export function OnboardingWizard({ onComplete }: Props) {
     setNeedsDownload(!installed.includes(modelBase));
   };
 
-  const handleNext = () => {
+  // Smallest safe fallback if backend returns no models
+  const DEFAULT_MODEL = "tinyllama";
+
+  const handleNext = async () => {
+    const nextStepDef = visibleSteps[step + 1];
+
+    // If advancing TO the download step with no model chosen, pick the best available default
+    if (nextStepDef?.id === "download" && !selectedModel) {
+      const fallback =
+        models.find((m) => m.recommended)?.name ??
+        models[0]?.name ??
+        DEFAULT_MODEL;
+      setSelectedModel(fallback);
+      await updateSettings({ model: fallback }).catch(() => {});
+      const installed = await getInstalledModels();
+      setNeedsDownload(!installed.includes(fallback.split(":")[0]));
+    }
+
     if (step < visibleSteps.length - 1) setStep(s => s + 1);
     else onComplete();
   };
@@ -576,6 +688,11 @@ export function OnboardingWizard({ onComplete }: Props) {
   const titleGrad  = isLastStep
     ? "linear-gradient(135deg, var(--success-dark), var(--success))"
     : "linear-gradient(135deg, var(--accent-deeper), var(--accent), var(--accent2))";
+  const isDownloadStep = currentStepDef?.id === "download";
+  const activeModelName = selectedModel ?? DEFAULT_MODEL;
+  const displayTitle = isDownloadStep
+    ? `Downloading\n${activeModelName}`
+    : currentStepDef?.title;
 
   return (
     <div className="onboarding-bg h-screen flex flex-col overflow-hidden" style={{ userSelect: "none" }}>
@@ -594,14 +711,14 @@ export function OnboardingWizard({ onComplete }: Props) {
           key={`title-${step}`}
           className="text-center font-bold mb-8 leading-[1.15] whitespace-pre-line animate-fade-up"
           style={{
-            fontSize: "clamp(2rem, 5vw, 2.75rem)",
+            fontSize: isDownloadStep ? "clamp(1.4rem, 3.5vw, 2rem)" : "clamp(2rem, 5vw, 2.75rem)",
             background: titleGrad,
             WebkitBackgroundClip: "text",
             WebkitTextFillColor: "transparent",
             backgroundClip: "text",
           }}
         >
-          {currentStepDef?.title}
+          {displayTitle}
         </h1>
 
         {/* Step body */}
@@ -610,8 +727,8 @@ export function OnboardingWizard({ onComplete }: Props) {
           {currentStepDef?.id === "hardware" && <HardwareStep hardware={hardware} loading={loading} />}
           {currentStepDef?.id === "ollama"   && <OllamaStep installed={ollamaInstalled} running={ollamaRunning} loading={loading} starting={ollamaStarting} startError={ollamaStartError} onRetry={handleRetryStart} />}
           {currentStepDef?.id === "model"    && <ModelStep models={models} selected={selectedModel} onSelect={handleModelSelect} />}
-          {currentStepDef?.id === "download" && selectedModel && (
-            <DownloadStep modelName={selectedModel} onDone={handleNext} />
+          {currentStepDef?.id === "download" && (
+            <DownloadStep modelName={selectedModel ?? DEFAULT_MODEL} onDone={handleNext} />
           )}
           {currentStepDef?.id === "ready"    && <ReadyStep />}
         </div>

@@ -55,6 +55,37 @@ export async function loadDataset(path: string): Promise<{
   return request("/load", "POST", { path });
 }
 
+export async function uploadDataset(file: File): Promise<{
+  success: boolean;
+  datasetName: string;
+  profile: ProfileData;
+  preview: Record<string, unknown>[];
+  versions: VersionData[];
+}> {
+  // Read file as base64 and send as JSON — works in both dev and production
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  const b64 = btoa(binary);
+
+  const res = await fetch(`${BASE_URL}/upload`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename: file.name, data: b64 }),
+  });
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(error.error || `HTTP ${res.status}`);
+  }
+
+  return res.json();
+}
+
 export async function getPreview(rows?: number): Promise<{
   preview: Record<string, unknown>[];
 }> {

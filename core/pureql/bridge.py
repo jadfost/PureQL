@@ -284,7 +284,9 @@ class PureQLHandler(BaseHTTPRequestHandler):
         path = self.path
 
         try:
-            if path == "/load":
+            if path == "/upload":
+                self._handle_upload()
+            elif path == "/load":
                 self._handle_load(data)
             elif path == "/profile":
                 self._handle_profile()
@@ -372,6 +374,76 @@ class PureQLHandler(BaseHTTPRequestHandler):
             self._respond(404, {"error": "Not found"})
 
     # ── Handlers ──
+
+    def _handle_upload(self):
+        """Receive a file as multipart/form-data OR raw base64 JSON and load it."""
+        import tempfile, base64, os
+
+        content_type = self.headers.get("Content-Type", "")
+
+        if "multipart/form-data" in content_type:
+            # ── multipart upload (HTML input file) ──────────────────────────
+            import email, io
+            boundary = content_type.split("boundary=")[-1].strip()
+            content_length = int(self.headers.get("Content-Length", 0))
+            raw = self.rfile.read(content_length)
+
+            # Parse multipart manually
+            msg = email.message_from_bytes(
+                b"Content-Type: " + content_type.encode() + b"\r\n\r\n" + raw
+            )
+            filename = None
+            file_bytes = None
+            for part in msg.walk():
+                cd = part.get("Content-Disposition", "")
+                if "filename=" in cd:
+                    filename = cd.split("filename=")[-1].strip().strip('"')
+                    file_bytes = part.get_payload(decode=True)
+                    break
+
+            if not file_bytes or not filename:
+                self._respond(400, {"error": "No file found in upload"})
+                return
+
+        elif "application/json" in content_type:
+            # ── base64 JSON upload ───────────────────────────────────────────
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            import json as _json
+            data = _json.loads(body)
+            filename = data.get("filename", "dataset.csv")
+            b64 = data.get("data", "")
+            file_bytes = base64.b64decode(b64)
+        else:
+            self._respond(400, {"error": "Unsupported Content-Type for upload"})
+            return
+
+        # Save to temp file and load
+        suffix = Path(filename).suffix or ".csv"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="pureql_") as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+
+        try:
+            state.reset()
+            state.df = load(tmp_path)
+            state.dataset_name = filename
+            prof = profile(state.df)
+            state.store.create_initial(state.df, quality_score=prof.quality_score)
+            self._respond(200, {
+                "success": True,
+                "datasetName": state.dataset_name,
+                "profile": prof.to_dict(),
+                "preview": _get_preview(state.df),
+                "versions": state.store.get_timeline(),
+            })
+        except Exception as e:
+            self._respond(400, {"error": str(e)})
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
 
     def _handle_load(self, data: dict):
         file_path = data.get("path", "")
