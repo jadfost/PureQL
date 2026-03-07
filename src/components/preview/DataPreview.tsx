@@ -3,8 +3,171 @@ import { useAppStore } from "../../stores/appStore";
 import { StatsPanel } from "./StatsPanel";
 import { DiffPanel } from "./DiffPanel";
 import { ExportDialog } from "../export/ExportDialog";
-import { runSQL, generateSchema, optimizeSQL } from "../../lib/api";
-import { Upload, Play, Check } from "lucide-react";
+import { runSQL, generateSchema, optimizeSQL, autoClean } from "../../lib/api";
+import { Upload, Play, Check, Sparkles, X, CheckCircle2, AlertCircle } from "lucide-react";
+
+/* ── Auto Clean Modal ────────────────────────────────────────────────────── */
+function AutoCleanModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const { setPreviewData, setVersions, setLoading, isLoading, profile } = useAppStore();
+  const [ops, setOps]         = useState<{ operation: string; description: string; rowsAffected: number }[]>([]);
+  const [newScore, setNewScore] = useState<number | null>(null);
+  const [error, setError]     = useState<string | null>(null);
+  const [started, setStarted] = useState(false);
+
+  const handleRun = async () => {
+    setStarted(true);
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await autoClean();
+      if (res.preview)  setPreviewData(res.preview);
+      if (res.versions) setVersions(res.versions);
+      setOps(res.operations ?? []);
+      setNewScore(res.qualityScore ?? null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Auto-clean failed");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isDone = started && !isLoading && !error;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
+      <div className="w-[440px] flex flex-col bg-white border border-pureql-border rounded-2xl shadow-2xl overflow-hidden">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-pureql-border">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-pureql-accent-dim border border-pureql-accent/20 flex items-center justify-center">
+              <Sparkles className="w-4 h-4 text-pureql-accent" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-zinc-800">Auto Clean</h2>
+              <p className="text-[10px] text-zinc-400">AI-powered dataset cleaning</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-600">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* Current state */}
+          {profile && !started && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="px-4 py-3 rounded-xl bg-pureql-panel border border-pureql-border">
+                <p className="text-[9px] text-zinc-400 uppercase tracking-widest mb-1">Current score</p>
+                <span className={`text-2xl font-black ${
+                  profile.qualityScore >= 80 ? "text-emerald-500" :
+                  profile.qualityScore >= 60 ? "text-amber-500" : "text-red-400"
+                }`}>{profile.qualityScore}</span>
+                <span className="text-sm text-zinc-400">/100</span>
+              </div>
+              <div className="px-4 py-3 rounded-xl bg-pureql-panel border border-pureql-border">
+                <p className="text-[9px] text-zinc-400 uppercase tracking-widest mb-1">Issues found</p>
+                <span className="text-2xl font-black text-zinc-700">{profile.issues?.length ?? 0}</span>
+                <span className="text-sm text-zinc-400"> items</span>
+              </div>
+            </div>
+          )}
+
+          {/* Issues list */}
+          {profile?.issues && profile.issues.length > 0 && !started && (
+            <div className="space-y-1">
+              <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Will fix</p>
+              {profile.issues.slice(0, 5).map((issue, i) => (
+                <div key={i} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200">
+                  <Sparkles className="w-3 h-3 text-amber-500 shrink-0" />
+                  <span className="text-[11px] text-amber-700">{issue}</span>
+                </div>
+              ))}
+              {profile.issues.length > 5 && (
+                <p className="text-[10px] text-zinc-400 pl-1">+{profile.issues.length - 5} more issues</p>
+              )}
+            </div>
+          )}
+
+          {/* Running */}
+          {started && isLoading && (
+            <div className="flex flex-col items-center gap-3 py-4">
+              <div className="w-10 h-10 border-2 border-pureql-accent border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm font-medium text-zinc-500">Cleaning your dataset…</p>
+              <p className="text-[10px] text-zinc-400">Detecting duplicates, outliers, and format issues</p>
+            </div>
+          )}
+
+          {/* Error */}
+          {error && (
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-red-50 border border-red-200">
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+              <span className="text-[11px] text-red-600">{error}</span>
+            </div>
+          )}
+
+          {/* Results */}
+          {isDone && (
+            <div className="space-y-2">
+              {/* Score improvement */}
+              {newScore !== null && profile && (
+                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-emerald-50 border border-emerald-200">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
+                  <div>
+                    <p className="text-[11px] font-semibold text-emerald-700">Cleaning complete!</p>
+                    <p className="text-[10px] text-emerald-600">
+                      Score: <strong>{profile.qualityScore}</strong> → <strong>{newScore}/100</strong>
+                      {newScore > profile.qualityScore && ` (+${newScore - profile.qualityScore})`}
+                    </p>
+                  </div>
+                </div>
+              )}
+              {/* Operations list */}
+              {ops.length > 0 ? (
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Operations applied</p>
+                  {ops.map((op, i) => (
+                    <div key={i} className="flex items-start gap-2 px-3 py-2 rounded-lg border border-pureql-border bg-white">
+                      <Check className="w-3 h-3 text-emerald-500 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-[11px] font-medium text-zinc-700">{op.description}</p>
+                        {op.rowsAffected > 0 && (
+                          <p className="text-[9px] text-zinc-400">{op.rowsAffected.toLocaleString()} rows affected</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-sky-50 border border-sky-200">
+                  <CheckCircle2 className="w-4 h-4 text-sky-400 shrink-0" />
+                  <span className="text-[11px] text-sky-700">Dataset is already clean — no changes needed!</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-pureql-border bg-pureql-panel">
+          <button onClick={isDone ? onDone : onClose}
+            className="px-4 py-2 text-[11px] font-medium text-zinc-500 hover:text-zinc-700 transition">
+            {isDone ? "Close" : "Cancel"}
+          </button>
+          {!started && (
+            <button onClick={handleRun}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-pureql-accent text-white text-[11px] font-semibold hover:bg-sky-600 transition">
+              <Sparkles className="w-3.5 h-3.5" />
+              Run Auto Clean
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── DataPreview ─────────────────────────────────────────────────────────── */
 
 export function DataPreview() {
   const {
@@ -13,7 +176,8 @@ export function DataPreview() {
     isLoading, setLoading,
   } = useAppStore();
 
-  const [showExport, setShowExport] = useState(false);
+  const [showExport, setShowExport]         = useState(false);
+  const [showAutoClean, setShowAutoClean]   = useState(false);
   const [sqlInput, setSqlInput] = useState("");
   const [sqlRunning, setSqlRunning] = useState(false);
   const [sqlError, setSqlError] = useState<string | null>(null);
@@ -92,8 +256,17 @@ export function DataPreview() {
           )}
           {datasetName && (
             <button
+              onClick={() => setShowAutoClean(true)}
+              className="text-[10px] px-2.5 py-1 rounded border border-pureql-accent/30 bg-pureql-accent-dim text-pureql-accent hover:bg-pureql-accent/20 transition flex items-center gap-1.5 font-medium"
+            >
+              <Sparkles className="w-3 h-3" />
+              Auto Clean
+            </button>
+          )}
+          {datasetName && (
+            <button
               onClick={() => setShowExport(true)}
-              className="text-[10px] px-2.5 py-1 rounded border border-pureql-border text-zinc-400 hover:text-zinc-200 hover:border-zinc-500 transition flex items-center gap-1.5"
+              className="text-[10px] px-2.5 py-1 rounded border border-pureql-border text-zinc-500 hover:text-zinc-700 hover:border-zinc-400 transition flex items-center gap-1.5"
             >
               <Upload className="w-3 h-3" />
               Export
@@ -223,6 +396,29 @@ export function DataPreview() {
       {activePanel === "stats" && <StatsPanel />}
       {activePanel === "diff" && <DiffPanel />}
       {showExport && <ExportDialog onClose={() => setShowExport(false)} />}
+      {showAutoClean && (
+        <AutoCleanModal
+          onClose={() => setShowAutoClean(false)}
+          onDone={() => setShowAutoClean(false)}
+        />
+      )}
+
+      {/* Low quality score banner */}
+      {profile && profile.qualityScore < 70 && activePanel === "data" && !showAutoClean && (
+        <div className="shrink-0 flex items-center gap-3 px-4 py-2.5 border-t border-amber-200 bg-amber-50">
+          <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
+          <p className="text-[11px] text-amber-700 flex-1">
+            Quality score is <strong>{profile.qualityScore}/100</strong> — {profile.issues?.length ?? 0} issues detected.
+          </p>
+          <button
+            onClick={() => setShowAutoClean(true)}
+            className="shrink-0 flex items-center gap-1.5 text-[10px] font-semibold text-amber-700 bg-amber-100 border border-amber-300 px-2.5 py-1.5 rounded-lg hover:bg-amber-200 transition"
+          >
+            <Sparkles className="w-3 h-3" />
+            Fix automatically
+          </button>
+        </div>
+      )}
     </div>
   );
 }

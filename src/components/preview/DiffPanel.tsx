@@ -1,5 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAppStore } from "../../stores/appStore";
+import {
+  ArrowRight, RefreshCw, TrendingUp, TrendingDown,
+  Minus, Plus, AlertCircle, CheckCircle2,
+} from "lucide-react";
 
 interface DiffResult {
   version_a: string;
@@ -25,239 +29,255 @@ async function fetchDiff(versionA: string, versionB: string): Promise<DiffResult
   return res.json();
 }
 
-function DiffBadge({ count, type }: { count: number; type: "added" | "removed" | "changed" }) {
-  const cfg = {
-    added: "bg-emerald-500/15 text-emerald-400 border-emerald-500/25",
-    removed: "bg-red-500/15 text-red-400 border-red-500/25",
-    changed: "bg-amber-500/15 text-amber-400 border-amber-500/25",
-  };
-  const icon = { added: "+", removed: "−", changed: "~" };
+function StatCard({
+  label, before, after, diff, type,
+}: {
+  label: string;
+  before: number;
+  after: number;
+  diff: number;
+  type: "rows" | "cols";
+}) {
+  const improved = type === "rows" ? diff < 0 : diff > 0;
+  const neutral  = diff === 0;
   return (
-    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-mono ${cfg[type]}`}>
-      {icon[type]}{count}
-    </span>
+    <div className="flex flex-col gap-1 px-4 py-3 rounded-xl border border-pureql-border bg-white">
+      <span className="text-[9px] font-semibold text-zinc-400 uppercase tracking-widest">{label}</span>
+      <div className="flex items-end gap-2">
+        <span className="text-lg font-black font-mono text-zinc-700 tabular-nums">{after.toLocaleString()}</span>
+        {!neutral && (
+          <span className={`flex items-center gap-0.5 text-[10px] font-semibold mb-0.5 ${
+            improved ? "text-emerald-500" : "text-red-400"
+          }`}>
+            {improved
+              ? <TrendingDown className="w-3 h-3" />
+              : <TrendingUp className="w-3 h-3" />}
+            {Math.abs(diff).toLocaleString()}
+          </span>
+        )}
+        {neutral && <span className="text-[10px] text-zinc-400 mb-0.5">no change</span>}
+      </div>
+      <span className="text-[9px] text-zinc-400 font-mono">from {before.toLocaleString()}</span>
+    </div>
   );
 }
 
 export function DiffPanel() {
-  const { versions } = useAppStore();
-  const [versionA, setVersionA] = useState<string>("");
-  const [versionB, setVersionB] = useState<string>("");
-  const [diff, setDiff] = useState<DiffResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { versions, currentVersionId } = useAppStore();
+  const [versionA, setVersionA] = useState("");
+  const [versionB, setVersionB] = useState("");
+  const [diff, setDiff]         = useState<DiffResult | null>(null);
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState<string | null>(null);
 
-  const canCompare = versionA && versionB && versionA !== versionB;
+  // Auto-select: A = previous version, B = current
+  useEffect(() => {
+    if (versions.length < 2) return;
+    const currentIdx = versions.findIndex((v) => v.id === currentVersionId);
+    const bIdx = currentIdx >= 0 ? currentIdx : versions.length - 1;
+    const aIdx = bIdx > 0 ? bIdx - 1 : 0;
+    if (aIdx !== bIdx) {
+      setVersionA(versions[aIdx].id);
+      setVersionB(versions[bIdx].id);
+    }
+  }, [versions, currentVersionId]);
 
-  const handleCompare = async () => {
-    if (!canCompare) return;
+  // Auto-run whenever A and B are both set
+  useEffect(() => {
+    if (!versionA || !versionB || versionA === versionB) return;
+    runDiff();
+  }, [versionA, versionB]);
+
+  const runDiff = async () => {
+    if (!versionA || !versionB || versionA === versionB) return;
     setLoading(true);
     setError(null);
     try {
       const result = await fetchDiff(versionA, versionB);
-      if (result.error) {
-        setError(result.error);
-      } else {
-        setDiff(result);
-      }
-    } catch (e) {
+      if (result.error) setError(result.error);
+      else setDiff(result);
+    } catch {
       setError("Failed to fetch diff from bridge.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Auto-set to last two versions on load
-  const handleAutoSelect = () => {
-    if (versions.length >= 2) {
-      setVersionA(versions[versions.length - 2].id);
-      setVersionB(versions[versions.length - 1].id);
-    }
-  };
+  const labelOf = (id: string) =>
+    versions.find((v) => v.id === id)?.label ?? id.slice(0, 8);
+  const descOf = (id: string) =>
+    versions.find((v) => v.id === id)?.description ?? "";
 
-  if (versions.length === 0) {
+  if (versions.length < 2) {
     return (
-      <div className="flex-1 flex items-center justify-center">
-        <p className="text-xs text-zinc-600">No versions to compare yet.</p>
+      <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center p-8">
+        <div className="w-10 h-10 rounded-xl bg-pureql-panel border border-pureql-border flex items-center justify-center">
+          <ArrowRight className="w-5 h-5 text-zinc-400" />
+        </div>
+        <p className="text-xs font-medium text-zinc-500">Need at least 2 versions to compare</p>
+        <p className="text-[10px] text-zinc-400">Apply a cleaning operation first.</p>
       </div>
     );
   }
 
-  const versionLabel = (id: string) =>
-    versions.find((v) => v.id === id)?.label ?? id.slice(0, 8);
-
   return (
     <div className="flex-1 overflow-auto p-3 space-y-3">
-      {/* Selector */}
-      <div className="bg-pureql-card border border-pureql-border rounded-md p-3">
-        <div className="text-[10px] font-semibold text-zinc-500 tracking-wide mb-2">
-          COMPARE VERSIONS
-        </div>
-        <div className="flex items-center gap-2">
-          <select
-            value={versionA}
-            onChange={(e) => setVersionA(e.target.value)}
-            className="flex-1 bg-pureql-dark border border-pureql-border rounded text-[11px] text-zinc-300 px-2 py-1.5 focus:outline-none focus:border-pureql-accent/50"
-          >
-            <option value="">Select version A</option>
-            {versions.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.label}
-              </option>
-            ))}
-          </select>
 
-          <span className="text-zinc-600 text-sm shrink-0">→</span>
-
-          <select
-            value={versionB}
-            onChange={(e) => setVersionB(e.target.value)}
-            className="flex-1 bg-pureql-dark border border-pureql-border rounded text-[11px] text-zinc-300 px-2 py-1.5 focus:outline-none focus:border-pureql-accent/50"
-          >
-            <option value="">Select version B</option>
-            {versions.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.label}
-              </option>
-            ))}
-          </select>
-
-          <button
-            onClick={handleCompare}
-            disabled={!canCompare || loading}
-            className="shrink-0 px-3 py-1.5 bg-pureql-accent/20 text-pureql-accent border border-pureql-accent/30 rounded text-[11px] hover:bg-pureql-accent/30 transition disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            {loading ? "…" : "Compare"}
+      {/* Version selector */}
+      <div className="bg-white border border-pureql-border rounded-xl p-3">
+        <div className="flex items-center gap-2 mb-3">
+          <span className="text-[10px] font-semibold text-zinc-500 tracking-widest uppercase">Compare versions</span>
+          <button onClick={runDiff} disabled={loading || !versionA || !versionB || versionA === versionB}
+            className="ml-auto flex items-center gap-1 text-[10px] text-pureql-accent bg-pureql-accent-dim border border-pureql-accent/30 px-2 py-1 rounded-lg hover:bg-pureql-accent/20 disabled:opacity-40 transition">
+            <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
+            {loading ? "Comparing…" : "Refresh"}
           </button>
         </div>
 
-        {versions.length >= 2 && !versionA && !versionB && (
-          <button
-            onClick={handleAutoSelect}
-            className="mt-2 text-[10px] text-zinc-600 hover:text-zinc-400 transition"
-          >
-            ↳ Compare last two versions
-          </button>
+        <div className="flex items-stretch gap-2">
+          {/* Version A */}
+          <div className="flex-1">
+            <label className="text-[9px] font-semibold text-zinc-400 mb-1 block uppercase tracking-widest">Before</label>
+            <select value={versionA} onChange={(e) => setVersionA(e.target.value)}
+              className="w-full text-[11px] px-2.5 py-2 rounded-lg border border-pureql-border bg-pureql-panel focus:outline-none focus:border-pureql-accent">
+              <option value="">Select…</option>
+              {versions.map((v) => (
+                <option key={v.id} value={v.id}>{v.label} — {v.description?.slice(0, 28)}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-end pb-2">
+            <ArrowRight className="w-4 h-4 text-zinc-300" />
+          </div>
+
+          {/* Version B */}
+          <div className="flex-1">
+            <label className="text-[9px] font-semibold text-zinc-400 mb-1 block uppercase tracking-widest">After</label>
+            <select value={versionB} onChange={(e) => setVersionB(e.target.value)}
+              className="w-full text-[11px] px-2.5 py-2 rounded-lg border border-pureql-border bg-pureql-panel focus:outline-none focus:border-pureql-accent">
+              <option value="">Select…</option>
+              {versions.map((v) => (
+                <option key={v.id} value={v.id}>{v.label} — {v.description?.slice(0, 28)}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Version descriptions */}
+        {versionA && versionB && (
+          <div className="flex gap-2 mt-2">
+            <p className="flex-1 text-[10px] text-zinc-400 truncate">{descOf(versionA)}</p>
+            <ArrowRight className="w-3 h-3 text-zinc-300 shrink-0 mt-0.5" />
+            <p className="flex-1 text-[10px] text-zinc-400 truncate text-right">{descOf(versionB)}</p>
+          </div>
         )}
       </div>
 
       {/* Error */}
       {error && (
-        <div className="text-[11px] text-red-400 bg-red-400/10 border border-red-400/20 rounded-md px-3 py-2">
-          {error}
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-red-50 border border-red-200">
+          <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+          <span className="text-[11px] text-red-600">{error}</span>
+        </div>
+      )}
+
+      {/* Loading skeleton */}
+      {loading && (
+        <div className="space-y-2 animate-pulse">
+          <div className="grid grid-cols-3 gap-2">
+            {[1,2,3].map(i => <div key={i} className="h-20 rounded-xl bg-zinc-100" />)}
+          </div>
+          <div className="h-32 rounded-xl bg-zinc-100" />
         </div>
       )}
 
       {/* Results */}
-      {diff && (
+      {diff && !loading && (
         <>
-          {/* Summary row */}
-          <div className="bg-pureql-card border border-pureql-border rounded-md p-3">
-            <div className="text-[10px] font-semibold text-zinc-500 tracking-wide mb-2">
-              SUMMARY — {versionLabel(diff.version_a)} → {versionLabel(diff.version_b)}
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <div>
-                <div className="text-[10px] text-zinc-500 mb-0.5">Rows</div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-zinc-300 font-mono">
-                    {diff.rows_a.toLocaleString()} → {diff.rows_b.toLocaleString()}
-                  </span>
-                  {diff.row_diff !== 0 && (
-                    <DiffBadge
-                      count={Math.abs(diff.row_diff)}
-                      type={diff.row_diff < 0 ? "removed" : "added"}
-                    />
-                  )}
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] text-zinc-500 mb-0.5">Columns</div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-zinc-300 font-mono">
-                    {diff.cols_a} → {diff.cols_b}
-                  </span>
-                </div>
-              </div>
-              <div>
-                <div className="text-[10px] text-zinc-500 mb-0.5">Changed cols</div>
-                <div className="text-[11px] text-zinc-300 font-mono">
-                  {diff.changed_columns.length}
-                </div>
-              </div>
+          {/* Stats row */}
+          <div className="grid grid-cols-3 gap-2">
+            <StatCard label="Rows" before={diff.rows_a} after={diff.rows_b} diff={diff.row_diff} type="rows" />
+            <StatCard label="Columns" before={diff.cols_a} after={diff.cols_b} diff={diff.cols_b - diff.cols_a} type="cols" />
+            <div className="flex flex-col gap-1 px-4 py-3 rounded-xl border border-pureql-border bg-white">
+              <span className="text-[9px] font-semibold text-zinc-400 uppercase tracking-widest">Changed cells</span>
+              <span className="text-lg font-black font-mono text-zinc-700 tabular-nums">
+                {diff.changed_columns.reduce((s, c) => s + c.cells_changed, 0).toLocaleString()}
+              </span>
+              <span className="text-[9px] text-zinc-400">across {diff.changed_columns.length} cols</span>
             </div>
           </div>
 
-          {/* Column changes */}
+          {/* No differences */}
+          {diff.row_diff === 0 && diff.changed_columns.length === 0 &&
+           diff.columns_added.length === 0 && diff.columns_removed.length === 0 && (
+            <div className="flex items-center gap-2 px-4 py-3 rounded-xl bg-emerald-50 border border-emerald-200">
+              <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+              <span className="text-[11px] text-emerald-700 font-medium">
+                No differences found between {labelOf(versionA)} and {labelOf(versionB)}.
+              </span>
+            </div>
+          )}
+
+          {/* Column structure changes */}
           {(diff.columns_added.length > 0 || diff.columns_removed.length > 0) && (
-            <div className="bg-pureql-card border border-pureql-border rounded-md p-3">
-              <div className="text-[10px] font-semibold text-zinc-500 tracking-wide mb-2">
-                COLUMN CHANGES
+            <div className="bg-white border border-pureql-border rounded-xl overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-pureql-border bg-pureql-panel">
+                <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">Column changes</span>
               </div>
-              <div className="space-y-1">
+              <div className="p-3 space-y-1.5">
                 {diff.columns_added.map((col) => (
-                  <div key={col} className="flex items-center gap-2">
-                    <DiffBadge count={1} type="added" />
-                    <span className="text-[11px] text-zinc-300 font-mono">{col}</span>
+                  <div key={col} className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-emerald-50 border border-emerald-200">
+                    <Plus className="w-3 h-3 text-emerald-500 shrink-0" />
+                    <span className="text-[11px] text-emerald-700 font-mono font-semibold">{col}</span>
+                    <span className="text-[9px] text-emerald-500 ml-auto">added</span>
                   </div>
                 ))}
                 {diff.columns_removed.map((col) => (
-                  <div key={col} className="flex items-center gap-2">
-                    <DiffBadge count={1} type="removed" />
-                    <span className="text-[11px] text-zinc-300 font-mono line-through text-zinc-500">
-                      {col}
-                    </span>
+                  <div key={col} className="flex items-center gap-2.5 px-3 py-2 rounded-lg bg-red-50 border border-red-200">
+                    <Minus className="w-3 h-3 text-red-400 shrink-0" />
+                    <span className="text-[11px] text-red-500 font-mono font-semibold line-through">{col}</span>
+                    <span className="text-[9px] text-red-400 ml-auto">removed</span>
                   </div>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Value changes */}
+          {/* Value changes per column */}
           {diff.changed_columns.length > 0 && (
-            <div className="bg-pureql-card border border-pureql-border rounded-md overflow-hidden">
-              <div className="px-3 py-2 border-b border-pureql-border">
-                <span className="text-[10px] font-semibold text-zinc-500 tracking-wide">
-                  VALUE CHANGES
-                </span>
+            <div className="bg-white border border-pureql-border rounded-xl overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-pureql-border bg-pureql-panel flex items-center justify-between">
+                <span className="text-[10px] font-semibold text-zinc-500 uppercase tracking-widest">Cell changes by column</span>
+                <span className="text-[9px] text-zinc-400">{diff.changed_columns.length} columns</span>
               </div>
               <div className="divide-y divide-pureql-border">
-                {diff.changed_columns.map(({ column, cells_changed }) => {
-                  const pct = diff.rows_a > 0 ? (cells_changed / diff.rows_a) * 100 : 0;
-                  return (
-                    <div
-                      key={column}
-                      className="px-3 py-2 flex items-center gap-3 hover:bg-pureql-panel/30"
-                    >
-                      <span className="text-[11px] text-zinc-300 font-mono flex-1 truncate">
-                        {column}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        <div className="w-20 h-1 bg-pureql-border rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-amber-500/60 rounded-full"
-                            style={{ width: `${Math.min(pct, 100)}%` }}
-                          />
+                {diff.changed_columns
+                  .sort((a, b) => b.cells_changed - a.cells_changed)
+                  .map(({ column, cells_changed }) => {
+                    const pct = diff.rows_a > 0 ? (cells_changed / diff.rows_a) * 100 : 0;
+                    const heat = pct > 50 ? "bg-amber-400" : pct > 20 ? "bg-amber-300" : "bg-amber-200";
+                    return (
+                      <div key={column} className="flex items-center gap-3 px-4 py-2.5 hover:bg-pureql-panel/50 transition">
+                        <span className="text-[11px] text-zinc-600 font-mono flex-1 truncate">{column}</span>
+                        <div className="flex items-center gap-2.5 shrink-0">
+                          <div className="w-24 h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                            <div className={`h-full ${heat} rounded-full transition-all`}
+                              style={{ width: `${Math.min(pct, 100)}%` }} />
+                          </div>
+                          <span className="text-[10px] font-mono text-zinc-500 w-16 text-right">
+                            {cells_changed.toLocaleString()} cells
+                          </span>
+                          <span className="text-[9px] text-zinc-400 w-10 text-right">
+                            {pct.toFixed(0)}%
+                          </span>
                         </div>
-                        <span className="text-[10px] text-amber-400/80 font-mono w-14 text-right">
-                          {cells_changed.toLocaleString()} cells
-                        </span>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
               </div>
             </div>
           )}
-
-          {diff.changed_columns.length === 0 &&
-            diff.row_diff === 0 &&
-            diff.columns_added.length === 0 &&
-            diff.columns_removed.length === 0 && (
-              <div className="text-[11px] text-zinc-600 text-center py-4">
-                No differences found between these versions.
-              </div>
-            )}
         </>
       )}
     </div>

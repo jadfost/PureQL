@@ -257,6 +257,42 @@ export async function exportData(
   return request("/export", "POST", { format, path, tableName });
 }
 
+export async function exportAndDownload(
+  format: string,
+  filename: string,
+  tableName?: string
+): Promise<void> {
+  const res = await request<{
+    success: boolean;
+    filename: string;
+    format: string;
+    data: string; // base64
+    size: number;
+  }>("/export/download", "POST", { format, filename, tableName });
+
+  // Decode base64 → Blob → trigger browser download
+  const binary = atob(res.data);
+  const bytes  = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+  const mimeMap: Record<string, string> = {
+    csv:     "text/csv",
+    json:    "application/json",
+    parquet: "application/octet-stream",
+    xlsx:    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    sql:     "text/plain",
+    py:      "text/x-python",
+  };
+
+  const blob = new Blob([bytes], { type: mimeMap[format] ?? "application/octet-stream" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href     = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
 // ── Types ──
 
 export interface ProfileData {

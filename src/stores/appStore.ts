@@ -7,6 +7,8 @@ interface ChatMessage {
   content: string;
   timestamp: number;
   versionLabel?: string;
+  streaming?: boolean;
+  actions?: { type: string; params: Record<string, unknown>; target: string }[];
 }
 
 export interface ActiveModelInfo {
@@ -47,6 +49,7 @@ interface AppState {
   // Chat
   messages: ChatMessage[];
   addMessage: (m: ChatMessage) => void;
+  updateMessage: (id: string, patch: Partial<ChatMessage>) => void;
   clearMessages: () => void;
 
   // UI
@@ -87,6 +90,9 @@ export const useAppStore = create<AppState>((set) => ({
 
   messages: [],
   addMessage: (m) => set((s) => ({ messages: [...s.messages, m] })),
+  updateMessage: (id, patch) => set((s) => ({
+    messages: s.messages.map((msg) => msg.id === id ? { ...msg, ...patch } : msg),
+  })),
   clearMessages: () => set({ messages: [] }),
 
   activePanel: "data",

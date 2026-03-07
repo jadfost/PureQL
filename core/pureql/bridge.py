@@ -273,25 +273,34 @@ class PureQLHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         content_length = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(content_length).decode("utf-8") if content_length > 0 else "{}"
+        raw_body = self.rfile.read(content_length) if content_length > 0 else b""
 
+        path = self.path
+
+        # /upload is handled separately — body is already fully read above
+        if path == "/upload":
+            try:
+                self._handle_upload(raw_body)
+            except Exception as e:
+                self._respond(500, {"error": str(e), "traceback": traceback.format_exc()})
+            return
+
+        # All other endpoints expect JSON
         try:
-            data = json.loads(body)
+            data = json.loads(raw_body.decode("utf-8") if raw_body else "{}")
         except json.JSONDecodeError:
             self._respond(400, {"error": "Invalid JSON"})
             return
 
-        path = self.path
-
         try:
-            if path == "/upload":
-                self._handle_upload()
-            elif path == "/load":
+            if path == "/load":
                 self._handle_load(data)
             elif path == "/profile":
                 self._handle_profile()
             elif path == "/chat":
                 self._handle_chat(data)
+            elif path == "/chat/stream":
+                self._handle_chat_stream(data)
             elif path == "/execute":
                 self._handle_execute(data)
             elif path == "/preview":
@@ -316,6 +325,8 @@ class PureQLHandler(BaseHTTPRequestHandler):
                 self._handle_settings(data)
             elif path == "/export":
                 self._handle_export(data)
+            elif path == "/export/download":
+                self._handle_export_download(data)
             elif path == "/export/pipeline":
                 self._handle_export_pipeline(data)
             elif path == "/auto-clean":
@@ -375,45 +386,29 @@ class PureQLHandler(BaseHTTPRequestHandler):
 
     # ── Handlers ──
 
-    def _handle_upload(self):
-        """Receive a file as multipart/form-data OR raw base64 JSON and load it."""
-        import tempfile, base64, os
+    def _handle_upload(self, raw_body: bytes):
+        """Receive a file as base64 JSON (body already read by do_POST) and load it."""
+        import tempfile, base64 as _base64, os, json as _json
 
         content_type = self.headers.get("Content-Type", "")
 
-        if "multipart/form-data" in content_type:
-            # ── multipart upload (HTML input file) ──────────────────────────
-            import email, io
-            boundary = content_type.split("boundary=")[-1].strip()
-            content_length = int(self.headers.get("Content-Length", 0))
-            raw = self.rfile.read(content_length)
-
-            # Parse multipart manually
-            msg = email.message_from_bytes(
-                b"Content-Type: " + content_type.encode() + b"\r\n\r\n" + raw
-            )
-            filename = None
-            file_bytes = None
-            for part in msg.walk():
-                cd = part.get("Content-Disposition", "")
-                if "filename=" in cd:
-                    filename = cd.split("filename=")[-1].strip().strip('"')
-                    file_bytes = part.get_payload(decode=True)
-                    break
-
-            if not file_bytes or not filename:
-                self._respond(400, {"error": "No file found in upload"})
+        if "application/json" in content_type or True:
+            # Body is always base64 JSON sent by the frontend uploadDataset()
+            try:
+                data = _json.loads(raw_body.decode("utf-8"))
+            except Exception:
+                self._respond(400, {"error": "Invalid JSON in upload body"})
                 return
-
-        elif "application/json" in content_type:
-            # ── base64 JSON upload ───────────────────────────────────────────
-            content_length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(content_length)
-            import json as _json
-            data = _json.loads(body)
-            filename = data.get("filename", "dataset.csv")
-            b64 = data.get("data", "")
-            file_bytes = base64.b64decode(b64)
+            filename   = data.get("filename", "dataset.csv")
+            b64        = data.get("data", "")
+            if not b64:
+                self._respond(400, {"error": "Missing base64 data in upload"})
+                return
+            try:
+                file_bytes = _base64.b64decode(b64)
+            except Exception:
+                self._respond(400, {"error": "Invalid base64 data"})
+                return
         else:
             self._respond(400, {"error": "Unsupported Content-Type for upload"})
             return
@@ -515,6 +510,125 @@ class PureQLHandler(BaseHTTPRequestHandler):
             "versions": state.store.get_timeline(),
             "error": interpreted.error,
         })
+
+    def _handle_chat_stream(self, data: dict):
+        """
+        Stream the AI response token-by-token using Server-Sent Events.
+
+        Event types:
+          data: {"type": "token",  "text": "..."}   — one or more tokens
+          data: {"type": "done",   "explanation": "...", "actions": [...],
+                                   "results": [...], "versions": [...],
+                                   "preview": [...], "error": null}
+          data: {"type": "error",  "message": "..."}
+        """
+        from pureql.ai.ollama_client import generate_stream, is_ollama_running
+        from pureql.ai.interpreter import build_context, _parse_response, SYSTEM_PROMPT
+        from pureql.ai.cloud_providers import generate_cloud
+
+        message = data.get("message", "")
+        if not message:
+            self._respond(400, {"error": "Missing 'message'"})
+            return
+
+        # Build context
+        context = ""
+        if state.df is not None:
+            prof = profile(state.df)
+            prof_dict = prof.to_dict()
+            context = build_context(
+                columns=prof_dict["columns"],
+                row_count=prof_dict["rowCount"],
+                quality_score=prof_dict["qualityScore"],
+                issues=prof_dict["issues"],
+            )
+
+        prompt_parts = []
+        if context:
+            prompt_parts.append(f"DATASET CONTEXT:\n{context}\n")
+        prompt_parts.append(f"USER COMMAND: {message}")
+        full_prompt = "\n".join(prompt_parts)
+
+        # Send SSE headers
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
+        def send_event(payload: dict):
+            line = "data: " + json.dumps(payload, default=str) + "\n\n"
+            self.wfile.write(line.encode("utf-8"))
+            self.wfile.flush()
+
+        try:
+            full_text = []
+
+            if state.ai_provider == "ollama":
+                if not is_ollama_running():
+                    send_event({"type": "error", "message": "Ollama is not running."})
+                    return
+                for chunk in generate_stream(
+                    prompt=full_prompt,
+                    model=state.ai_model,
+                    system=SYSTEM_PROMPT,
+                    temperature=0.1,
+                ):
+                    full_text.append(chunk)
+                    send_event({"type": "token", "text": chunk})
+            else:
+                # Cloud providers don't stream here — generate full then emit tokens word-by-word
+                raw = generate_cloud(
+                    prompt=full_prompt,
+                    system=SYSTEM_PROMPT,
+                    provider_name=state.ai_provider,
+                    api_key=state.ai_api_key,
+                    model=state.ai_model,
+                    temperature=0.1,
+                )
+                for word in raw.split(" "):
+                    chunk = word + " "
+                    full_text.append(chunk)
+                    send_event({"type": "token", "text": chunk})
+
+            # Parse the full accumulated response
+            raw_response = "".join(full_text)
+            interpreted = _parse_response(raw_response)
+
+            # Execute actions
+            results = []
+            for action in interpreted.actions:
+                result = execute_action(action.type, action.params, action.target)
+                results.append(result)
+
+            # Update state for versions
+            if state.df is not None:
+                prof2 = profile(state.df)
+                for r in results:
+                    if r.get("success") and r.get("rows_affected", 0) > 0:
+                        state.store.commit(
+                            df=state.df,
+                            operation=r.get("operation", "transform"),
+                            description=r.get("description", "AI operation"),
+                            quality_score=prof2.quality_score,
+                            rows_affected=r.get("rows_affected", 0),
+                        )
+
+            send_event({
+                "type": "done",
+                "explanation": interpreted.explanation,
+                "confidence": interpreted.confidence,
+                "actions": [{"type": a.type, "params": a.params, "target": a.target} for a in interpreted.actions],
+                "results": results,
+                "preview": _get_preview(state.df) if state.df is not None else [],
+                "versions": state.store.get_timeline(),
+                "error": interpreted.error,
+            })
+
+        except Exception as e:
+            send_event({"type": "error", "message": str(e)})
 
     def _handle_execute(self, data: dict):
         action_type = data.get("type", "")
@@ -688,6 +802,69 @@ class PureQLHandler(BaseHTTPRequestHandler):
 
         _export_data(state.df, fmt, path, data.get("tableName"))
         self._respond(200, {"success": True, "path": path, "format": fmt})
+
+    def _handle_export_download(self, data: dict):
+        """Export to in-memory buffer and return as base64 for browser download."""
+        import base64, tempfile, os
+        if state.df is None:
+            self._respond(400, {"error": "No dataset loaded"})
+            return
+
+        fmt        = data.get("format", "csv")
+        filename   = data.get("filename", f"export.{fmt}")
+        table_name = data.get("tableName") or "data"
+
+        try:
+            if fmt == "csv":
+                buf = state.df.write_csv()
+                raw = buf.encode("utf-8") if isinstance(buf, str) else buf
+            elif fmt == "json":
+                buf = state.df.write_json()
+                raw = buf.encode("utf-8") if isinstance(buf, str) else buf
+            elif fmt == "parquet":
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".parquet")
+                tmp.close()
+                state.df.write_parquet(tmp.name)
+                with open(tmp.name, "rb") as f_:
+                    raw = f_.read()
+                os.unlink(tmp.name)
+            elif fmt == "xlsx":
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx")
+                tmp.close()
+                state.df.write_excel(tmp.name)
+                with open(tmp.name, "rb") as f_:
+                    raw = f_.read()
+                os.unlink(tmp.name)
+            elif fmt == "sql":
+                schema = generate_schema(state.df, table_name=table_name)
+                lines = [schema.query + "\n"]
+                for row in state.df.iter_rows(named=True):
+                    cols = ", ".join(f'"{k}"' for k in row.keys())
+                    vals = ", ".join(_sql_value(v) for v in row.values())
+                    lines.append(f"INSERT INTO {table_name} ({cols}) VALUES ({vals});\n")
+                raw = "".join(lines).encode("utf-8")
+            elif fmt == "py":
+                script = export_pipeline(
+                    versions=state.store.get_timeline(),
+                    source_path=state.dataset_name or "dataset.csv",
+                    output_path=f"{table_name}_clean.csv",
+                    table_name=table_name,
+                )
+                raw = script.encode("utf-8") if isinstance(script, str) else script
+            else:
+                self._respond(400, {"error": f"Unknown format: {fmt}"})
+                return
+
+            self._respond(200, {
+                "success": True,
+                "filename": filename,
+                "format": fmt,
+                "data": base64.b64encode(raw).decode("ascii"),
+                "size": len(raw),
+            })
+        except Exception as e:
+            self._respond(500, {"error": str(e)})
+
 
     def _handle_auto_clean(self):
         if state.df is None:
