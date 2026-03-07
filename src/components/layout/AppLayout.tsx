@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { ChatPanel } from "../chat/ChatPanel";
 import { DataPreview } from "../preview/DataPreview";
 import { MiniPreview } from "../preview/MiniPreview";
@@ -201,12 +201,109 @@ function PinnedPanelsSection({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Waiting state — shown when datasets are loaded but no AI query has run yet
+// ─────────────────────────────────────────────────────────────────────────────
+function WaitingForQuery({ datasets }: { datasets: { name: string; rowCount: number; colCount: number }[] }) {
+  const suggestions = [
+    "What are the top 10 most frequent values in each column?",
+    "Show me the distribution grouped by decade",
+    "Join both datasets and find the top results",
+    "Clean duplicates and normalize the data",
+  ];
+
+  return (
+    <div
+      className="flex flex-col items-center justify-center h-full gap-6 p-10 select-none"
+      style={{ background: "var(--bg)" }}
+    >
+      {/* Loaded datasets pills */}
+      <div className="flex flex-wrap gap-2 justify-center">
+        {datasets.map((ds) => (
+          <div
+            key={ds.name}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl border"
+            style={{
+              background: "white",
+              borderColor: "var(--accent-border)",
+              boxShadow: "var(--shadow-xs)",
+            }}
+          >
+            <div
+              className="w-2 h-2 rounded-full"
+              style={{ background: "var(--success)" }}
+            />
+            <span className="text-[11px] font-semibold" style={{ color: "var(--text-primary)" }}>
+              {ds.name}
+            </span>
+            <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>
+              {ds.rowCount.toLocaleString()} × {ds.colCount}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Central message */}
+      <div className="text-center max-w-sm">
+        <div
+          className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
+          style={{ background: "var(--accent-subtle)", border: "1px solid var(--accent-border)" }}
+        >
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ color: "var(--accent)" }}>
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          </svg>
+        </div>
+        <p className="text-sm font-semibold mb-1" style={{ color: "var(--text-primary)" }}>
+          Ask the AI something to get started
+        </p>
+        <p className="text-[11px] leading-relaxed" style={{ color: "var(--text-faint)" }}>
+          The result of your query will appear here.
+          <br />
+          Your raw datasets are visible in the preview below.
+        </p>
+      </div>
+
+      {/* Suggestion chips */}
+      <div className="flex flex-col gap-1.5 w-full max-w-md">
+        <p className="text-[9px] font-semibold tracking-wide uppercase text-center mb-1" style={{ color: "var(--text-faint)" }}>
+          Try asking…
+        </p>
+        {suggestions.slice(0, datasets.length >= 2 ? 3 : 2).map((s) => (
+          <div
+            key={s}
+            className="text-[10px] px-3 py-2 rounded-lg border text-center"
+            style={{
+              borderColor: "var(--border)",
+              background: "white",
+              color: "var(--text-muted)",
+            }}
+          >
+            "{s}"
+          </div>
+        ))}
+      </div>
+
+      {/* Arrow hinting toward chat */}
+      <div className="flex items-center gap-2 mt-2" style={{ color: "var(--text-ghost)" }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="19" y1="12" x2="5" y2="12" />
+          <polyline points="12 19 5 12 12 5" />
+        </svg>
+        <span className="text-[10px]" style={{ color: "var(--text-ghost)" }}>
+          Type in the chat on the left
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // AppLayout
 // ─────────────────────────────────────────────────────────────────────────────
 export function AppLayout() {
   const {
     datasetName, profile, versions, activeModelInfo,
     loadedDatasets, addLoadedDataset,
+    hasAIResult,
   } = useAppStore();
 
   // ── Panel state ──
@@ -220,6 +317,23 @@ export function AppLayout() {
   // ── Bottom panes ──
   const [bottomPanes, setBottomPanes] = useState<(0 | 1)[]>([]);
   const showBottom = bottomPanes.length > 0;
+
+  // Auto-show bottom panes when first dataset is loaded
+  useEffect(() => {
+    if (loadedDatasets.length > 0 && bottomPanes.length === 0) {
+      setBottomPanes([0]);
+    }
+    if (loadedDatasets.length >= 2 && bottomPanes.length < 2) {
+      setBottomPanes([0, 1]);
+    }
+  }, [loadedDatasets.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-open versions panel whenever the AI produces a new result
+  useEffect(() => {
+    if (hasAIResult) {
+      setActivePanel("versions");
+    }
+  }, [versions.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Resize handles ──
   // chat: drag right = wider   → invert=false ✓
@@ -422,7 +536,7 @@ export function AppLayout() {
         )}
 
         {/* Preview panes toggle */}
-        {datasetName && loadedDatasets.length > 0 && (
+        {loadedDatasets.length > 0 && (
           <button onClick={showBottom ? () => setBottomPanes([]) : addBottomPane}
             className="flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-lg border transition-all duration-150"
             style={{
@@ -451,7 +565,12 @@ export function AppLayout() {
 
           {/* Main result preview (top) */}
           <div className="overflow-hidden min-h-0" style={{ flex: 1 }}>
-            {datasetName ? <DataPreview /> : <FileDropZone />}
+            {!datasetName
+              ? <FileDropZone />
+              : !hasAIResult
+              ? <WaitingForQuery datasets={loadedDatasets} />
+              : <DataPreview />
+            }
           </div>
 
           {/* Bottom panes */}

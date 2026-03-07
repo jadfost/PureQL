@@ -73,6 +73,10 @@ interface AppState {
 
   isLoading: boolean;
   setLoading: (v: boolean) => void;
+
+  // True once the AI has produced at least one result — gates the main preview area
+  hasAIResult: boolean;
+  setHasAIResult: (v: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -140,6 +144,9 @@ export const useAppStore = create<AppState>((set) => ({
 
   isLoading: false,
   setLoading: (v) => set({ isLoading: v }),
+
+  hasAIResult: false,
+  setHasAIResult: (v) => set({ hasAIResult: v }),
 }));
 
 export type { ChatMessage, ActiveModelInfo };

@@ -5,7 +5,74 @@ import { DiffPanel } from "./DiffPanel";
 import { ExportDialog } from "../export/ExportDialog";
 import { DataTable } from "../shared/DataTable";
 import { runSQL, generateSchema, optimizeSQL, autoClean } from "../../lib/api";
-import { Upload, Play, Check, Sparkles, X, CheckCircle2, AlertCircle, ArrowUp, ArrowDown } from "lucide-react";
+import { Upload, Play, Check, Sparkles, X, CheckCircle2, AlertCircle, GitBranch, Code2 } from "lucide-react";
+
+/* ── AutoCleanModal ──────────────────────────────────────────────────────── */
+
+function AutoCleanModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const { setPreviewData, setVersions, setLoading } = useAppStore();
+  const [running, setRunning] = useState(false);
+  const [ops, setOps] = useState<string[]>([]);
+  const [done, setDone] = useState(false);
+
+  const handleRun = async () => {
+    setRunning(true);
+    setLoading(true);
+    try {
+      const res = await autoClean();
+      if (res.preview) setPreviewData(res.preview);
+      if (res.versions) setVersions(res.versions);
+      setOps(res.operations.map((o: any) => o.description));
+      setDone(true);
+    } catch (err) {
+      setOps([`Error: ${err instanceof Error ? err.message : "Unknown"}`]);
+    } finally {
+      setRunning(false);
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl border shadow-xl w-full max-w-sm p-5 flex flex-col gap-4" style={{ borderColor: "var(--border)" }}>
+        <div className="flex items-center gap-2">
+          <Sparkles className="w-4 h-4" style={{ color: "var(--accent)" }} />
+          <span className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Auto Clean</span>
+          <button onClick={onClose} className="ml-auto p-1 rounded text-zinc-400 hover:text-zinc-600 transition"><X className="w-4 h-4" /></button>
+        </div>
+        {!done ? (
+          <>
+            <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+              PureQL will automatically detect and fix duplicates, normalize formats, and improve data quality.
+            </p>
+            <button onClick={handleRun} disabled={running}
+              className="flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-semibold disabled:opacity-50 transition"
+              style={{ background: "var(--gradient-accent)", color: "white" }}>
+              {running
+                ? <><div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />Cleaning…</>
+                : <><Sparkles className="w-3.5 h-3.5" />Run Auto Clean</>}
+            </button>
+          </>
+        ) : (
+          <>
+            <div className="space-y-1.5">
+              {ops.map((op, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs" style={{ color: "var(--text-muted)" }}>
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: "var(--success)" }} />
+                  {op}
+                </div>
+              ))}
+              {ops.length === 0 && <p className="text-xs" style={{ color: "var(--text-muted)" }}>Dataset is already clean!</p>}
+            </div>
+            <button onClick={onDone} className="py-2 rounded-xl text-sm font-semibold transition" style={{ background: "var(--accent-subtle)", color: "var(--accent)", border: "1px solid var(--accent-border)" }}>
+              Done
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
 
 /* ── DataPreview ─────────────────────────────────────────────────────────── */
@@ -23,6 +90,10 @@ export function DataPreview() {
   const [sqlRunning, setSqlRunning] = useState(false);
   const [sqlError, setSqlError] = useState<string | null>(null);
   const [sqlRows, setSqlRows] = useState<Record<string, unknown>[] | null>(null);
+
+  // Find the current version to display context
+  const activeVersion = versions.find((v) => v.id === currentVersionId)
+    ?? (versions.length > 0 ? versions[versions.length - 1] : null);
 
 
   const panels = [
@@ -74,6 +145,44 @@ export function DataPreview() {
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
+      {/* Version context banner — shows which AI result is being displayed */}
+      {activeVersion && (
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 border-b shrink-0"
+          style={{
+            background: "var(--accent-subtle)",
+            borderColor: "var(--accent-border)",
+          }}
+        >
+          <GitBranch className="w-3 h-3 shrink-0" style={{ color: "var(--accent)" }} />
+          <span className="text-[10px] font-semibold font-mono" style={{ color: "var(--accent)" }}>
+            {activeVersion.label}
+          </span>
+          <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+            — {activeVersion.description || activeVersion.label}
+          </span>
+          {activeVersion.sql && (
+            <button
+              onClick={() => setActivePanel("sql")}
+              className="flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded border ml-auto transition"
+              style={{
+                borderColor: "var(--accent-border)",
+                color: "var(--accent)",
+                background: "white",
+              }}
+            >
+              <Code2 className="w-2.5 h-2.5" />
+              View SQL
+            </button>
+          )}
+          {activeVersion.rowCount != null && (
+            <span className="text-[9px]" style={{ color: "var(--text-faint)" }}>
+              {activeVersion.rowCount.toLocaleString()} rows
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="flex items-center px-3 py-2 border-b shrink-0 gap-2" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
         <span className="text-[10px] font-semibold tracking-wide uppercase" style={{ color: "var(--text-faint)" }}>Preview</span>
@@ -143,6 +252,14 @@ export function DataPreview() {
             <div className="flex items-center gap-1.5 mb-2">
               <span className="text-[10px] font-semibold text-pink-400 tracking-wide">SQL EDITOR</span>
               <div className="ml-auto flex gap-1">
+                {currentSQL && !sqlInput && (
+                  <button
+                    onClick={() => setSqlInput(currentSQL)}
+                    className="text-[10px] px-2 py-0.5 border border-pureql-border rounded text-sky-400 hover:text-sky-300 transition"
+                  >
+                    Load AI SQL
+                  </button>
+                )}
                 <button
                   onClick={handleGenerateSchema}
                   disabled={!profile || isLoading}
@@ -190,9 +307,15 @@ export function DataPreview() {
           </div>
           <div className="flex-1 overflow-auto p-3">
             {currentSQL ? (
-              <pre className="bg-pureql-dark border border-pureql-border rounded-md p-3 font-mono text-[11px] text-zinc-400 whitespace-pre-wrap">
-                {currentSQL}
-              </pre>
+              <div>
+                <div className="text-[9px] font-semibold mb-2 flex items-center gap-1" style={{ color: "var(--accent)" }}>
+                  <Code2 className="w-3 h-3" />
+                  AI-generated SQL
+                </div>
+                <pre className="bg-pureql-dark border border-pureql-border rounded-md p-3 font-mono text-[11px] text-zinc-400 whitespace-pre-wrap">
+                  {currentSQL}
+                </pre>
+              </div>
             ) : (
               <div className="font-mono text-[11px] text-zinc-700 p-3">
                 {"-- Generated SQL and optimizations appear here\n-- Try asking the AI: 'generate schema for postgresql'"}

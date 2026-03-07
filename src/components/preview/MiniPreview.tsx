@@ -11,7 +11,9 @@ interface MiniPreviewProps {
 
 export function MiniPreview({ slot, onRemove }: MiniPreviewProps) {
   const { loadedDatasets } = useAppStore();
-  const [selectedName, setSelectedName] = useState<string>(loadedDatasets[0]?.name ?? "");
+  // slot 0 → first dataset, slot 1 → second dataset (if exists), else first
+  const defaultName = loadedDatasets[slot]?.name ?? loadedDatasets[0]?.name ?? "";
+  const [selectedName, setSelectedName] = useState<string>(defaultName);
   const [tab, setTab] = useState<"data" | "stats">("data");
   const [preview, setPreview] = useState<Record<string, unknown>[] | null>(null);
   const [loading, setLoading] = useState(false);

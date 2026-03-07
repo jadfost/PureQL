@@ -17,6 +17,7 @@ export function ChatPanel() {
     setProfile, isLoading, setLoading, setCurrentSQL,
     datasetName, loadedDatasets,
     selectedDatasets, toggleSelectedDataset,
+    setHasAIResult,
   } = useAppStore();
 
   const endRef        = useRef<HTMLDivElement>(null);
@@ -92,6 +93,11 @@ export function ChatPanel() {
             if (payload.versions?.length)      setVersions(payload.versions);
             // Refresh profile if server sent one (row count may have changed)
             if (payload.profile)               setProfile(payload.profile);
+
+            // Signal that the AI has produced a result — unlocks the main preview area
+            if (payload.preview !== undefined || payload.versions?.length) {
+              setHasAIResult(true);
+            }
 
             const latestVersion = payload.versions?.[payload.versions.length - 1];
             updateMessage(assistantId, {
