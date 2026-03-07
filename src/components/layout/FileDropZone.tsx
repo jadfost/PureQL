@@ -148,7 +148,7 @@ export function FileDropZone() {
   };
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center p-8">
+    <div className="flex-1 flex flex-col items-center justify-center p-8 onboarding-bg relative">
       <input ref={fileInputRef} type="file" accept={ACCEPTED.join(",")} multiple className="hidden" onChange={handleInputChange} />
       <input ref={extraInputRef} type="file" accept={ACCEPTED.join(",")} multiple className="hidden" onChange={handleExtraInputChange} />
 
@@ -157,15 +157,13 @@ export function FileDropZone() {
         onDragLeave={(e) => { e.preventDefault(); setDragOver(false); }}
         onDrop={handleDrop}
         onClick={handleClick}
-        className={`
-          w-full max-w-md p-12 border-2 border-dashed rounded-xl cursor-pointer
-          transition-all duration-200 text-center select-none
-          ${isLoading ? "pointer-events-none opacity-60" : ""}
-          ${dragOver
-            ? "border-pureql-accent/60 bg-pureql-accent-dim scale-[1.02]"
-            : "border-pureql-border hover:border-pureql-accent/40 hover:bg-pureql-accent-dim"
-          }
-        `}
+        className={`w-full max-w-md p-12 rounded-2xl cursor-pointer transition-all duration-300 text-center select-none relative z-10 card ${isLoading ? "pointer-events-none opacity-60" : ""}`}
+        style={{
+          border: dragOver ? "2px dashed var(--accent)" : "2px dashed var(--border)",
+          background: dragOver ? "var(--accent-subtle)" : "white",
+          transform: dragOver ? "scale(1.02)" : "scale(1)",
+          boxShadow: dragOver ? "var(--accent-glow-md)" : "var(--shadow-card)",
+        }}
       >
         {isLoading ? (
           <div className="flex flex-col items-center gap-3">
@@ -175,19 +173,20 @@ export function FileDropZone() {
         ) : (
           <>
             <FileUp
-              className={`mx-auto mb-4 w-10 h-10 transition-colors ${dragOver ? "text-pureql-accent" : "text-zinc-400"}`}
+              className="mx-auto mb-4 w-10 h-10 transition-all duration-300"
+              style={{ color: dragOver ? "var(--accent)" : "var(--text-ghost)", filter: dragOver ? "var(--accent-glow-sm)" : "none" }}
               strokeWidth={1.5}
             />
-            <div className="text-sm font-semibold text-zinc-600 mb-1">
+            <div className="text-sm font-bold mb-1 transition-colors duration-300" style={{ color: dragOver ? "var(--accent)" : "var(--text-primary)" }}>
               {dragOver ? "Release to load" : "Drop your dataset here"}
             </div>
-            <div className="text-xs text-zinc-400 mb-1">
+            <div className="text-xs mb-1" style={{ color: "var(--text-faint)" }}>
               CSV · JSON · Parquet · Excel · TSV · TXT
             </div>
-            <div className="text-[10px] text-zinc-500 mb-4">
+            <div className="text-[10px] mb-4" style={{ color: "var(--text-faint)" }}>
               You can drop multiple files at once
             </div>
-            <div className="inline-flex items-center gap-1.5 text-xs text-pureql-accent bg-pureql-accent-dim px-3 py-1.5 rounded-full border border-pureql-accent/20">
+            <div className="btn-primary text-xs px-4 py-2 inline-flex">
               <FileUp className="w-3 h-3" />
               Browse files
             </div>

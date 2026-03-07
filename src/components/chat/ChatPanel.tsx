@@ -143,26 +143,25 @@ export function ChatPanel() {
   return (
     <>
       {/* Header */}
-      <div className="px-3 py-2 border-b border-pureql-border shrink-0 flex items-center justify-between">
-        <div className="text-[10px] font-semibold text-zinc-500 tracking-wide">CHAT</div>
+      <div className="px-3 py-2 border-b shrink-0 flex items-center justify-between" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
+        <div className="text-[10px] font-semibold tracking-wide uppercase" style={{ color: "var(--text-faint)" }}>Chat</div>
         {datasetName && (
           <button onClick={handleAutoClean} disabled={isLoading}
-            className="text-[9px] px-2 py-0.5 rounded bg-pureql-accent-dim text-pureql-accent
-                       border border-pureql-accent/30 hover:bg-pureql-accent/20
-                       disabled:opacity-50 transition flex items-center gap-1">
+            className="text-[9px] px-2 py-0.5 rounded-lg disabled:opacity-50 transition flex items-center gap-1 font-medium"
+            style={{ background: "var(--accent-subtle)", color: "var(--accent)", border: "1px solid var(--accent-border)" }}>
             <Sparkles className="w-2.5 h-2.5" />Auto Clean
           </button>
         )}
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+      <div className="flex-1 overflow-y-auto p-3 space-y-3" style={{ background: "var(--bg)" }}>
         {messages.length === 0 && (
-          <div className="text-center text-zinc-600 text-xs mt-8 px-4 leading-relaxed">
-            <MessageSquare className="mx-auto mb-2 w-5 h-5 text-zinc-400" strokeWidth={1.5} />
+          <div className="text-center text-xs mt-8 px-4 leading-relaxed animate-fade-up" style={{ color: "var(--text-faint)" }}>
+            <MessageSquare className="mx-auto mb-2 w-5 h-5" strokeWidth={1.5} style={{ color: "var(--text-ghost)" }} />
             Talk to your data.
             <br />
-            <span className="text-zinc-500">
+            <span style={{ color: "var(--text-faint)" }}>
               Try: "clean duplicates", "join users and orders on id", or "show quality score"
             </span>
           </div>
@@ -171,11 +170,15 @@ export function ChatPanel() {
         {messages.map((msg) => (
           <div key={msg.id}>
             <div className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[85%] px-3 py-2 text-[11px] leading-relaxed whitespace-pre-wrap ${
-                msg.role === "user"
-                  ? "bg-purple-500/20 border border-purple-500/30 rounded-xl rounded-br-sm text-zinc-200"
-                  : "bg-pureql-card border border-pureql-border rounded-xl rounded-bl-sm text-zinc-400"
-              }`}>
+              <div
+                className={`max-w-[85%] px-3 py-2 text-[11px] leading-relaxed whitespace-pre-wrap ${
+                  msg.role === "user" ? "rounded-xl rounded-br-sm font-medium" : "rounded-xl rounded-bl-sm"
+                }`}
+                style={msg.role === "user"
+                  ? { background: "var(--accent-muted)", border: "1px solid var(--accent-border)", color: "var(--text-primary)" }
+                  : { background: "var(--bg-sunken)", border: "1px solid var(--border)", color: "var(--text-secondary)" }
+                }
+              >
                 {msg.content}
                 {msg.streaming && (
                   <span className="inline-block w-[2px] h-[12px] bg-pureql-accent ml-0.5 align-middle animate-pulse" />
@@ -184,7 +187,7 @@ export function ChatPanel() {
             </div>
             {msg.versionLabel && (
               <div className="flex justify-center mt-1">
-                <span className="text-[8px] text-pureql-accent bg-pureql-accent-dim px-2 py-0.5 rounded flex items-center gap-1">
+                <span className="text-[8px] px-2 py-0.5 rounded-full flex items-center gap-1 font-medium" style={{ color: "var(--accent)", background: "var(--accent-subtle)", border: "1px solid var(--accent-border)" }}>
                   <Check className="w-2.5 h-2.5" />{msg.versionLabel}
                 </span>
               </div>
@@ -197,9 +200,9 @@ export function ChatPanel() {
 
       {/* Dataset Picker Dropdown */}
       {hasMultipleDatasets && showDatasetPicker && (
-        <div className="mx-2 mb-1 bg-pureql-card border border-pureql-border rounded-lg overflow-hidden">
-          <div className="px-2 py-1.5 border-b border-pureql-border">
-            <span className="text-[9px] font-semibold text-zinc-500 tracking-wide">SELECT DATASETS FOR THIS PROMPT</span>
+        <div className="mx-2 mb-1 rounded-xl overflow-hidden border" style={{ background: "white", borderColor: "var(--border)", boxShadow: "var(--shadow-sm)" }}>
+          <div className="px-2 py-1.5 border-b" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
+            <span className="text-[9px] font-semibold tracking-wide uppercase" style={{ color: "var(--text-faint)" }}>Select datasets for this prompt</span>
           </div>
           <div className="p-1.5 space-y-0.5 max-h-40 overflow-y-auto">
             {loadedDatasets.map((ds) => {
@@ -208,20 +211,20 @@ export function ChatPanel() {
                 <button
                   key={ds.name}
                   onClick={() => toggleSelectedDataset(ds.name)}
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left transition ${
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-left transition ${
                     isSelected
                       ? "bg-pureql-accent-dim border border-pureql-accent/30"
                       : "hover:bg-pureql-panel border border-transparent"
                   }`}
                 >
                   <div className={`w-3 h-3 rounded border flex items-center justify-center shrink-0 transition ${
-                    isSelected ? "bg-pureql-accent border-pureql-accent" : "border-zinc-500"
+                    isSelected ? "border-transparent" : "border-zinc-300"
                   }`}>
                     {isSelected && <Check className="w-2 h-2 text-white" />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[10px] font-medium text-zinc-300 truncate">{ds.name}</div>
-                    <div className="text-[9px] text-zinc-500">
+                    <div className="text-[10px] font-medium truncate" style={{ color: "var(--text-primary)" }}>{ds.name}</div>
+                    <div className="text-[9px]" style={{ color: "var(--text-faint)" }}>
                       {ds.rowCount.toLocaleString()} rows · {ds.colCount} cols
                     </div>
                   </div>
@@ -258,7 +261,7 @@ export function ChatPanel() {
       )}
 
       {/* Input */}
-      <div className="p-2 border-t border-pureql-border shrink-0">
+      <div className="p-2 border-t shrink-0" style={{ borderColor: "var(--border)", background: "white" }}>
         <div className="flex gap-1.5">
           {/* Dataset selector toggle (only when multiple datasets loaded) */}
           {hasMultipleDatasets && (
@@ -267,8 +270,7 @@ export function ChatPanel() {
               title="Select datasets for this prompt"
               className={`px-2 py-2 rounded-md border text-xs transition flex items-center gap-1 shrink-0 ${
                 showDatasetPicker || selectedDatasets.length > 0
-                  ? "bg-sky-500/15 border-sky-500/30 text-sky-400"
-                  : "bg-pureql-card border-pureql-border text-zinc-500 hover:text-zinc-300"
+                  ? "" : ""
               }`}
             >
               <Layers className="w-3 h-3" />
@@ -292,22 +294,18 @@ export function ChatPanel() {
                 : "Load a dataset first..."
             }
             disabled={isLoading && !streamingId.current}
-            className="flex-1 bg-pureql-card border border-pureql-border rounded-md px-3 py-2
-                       text-xs text-zinc-300 placeholder:text-zinc-600
-                       focus:outline-none focus:border-pureql-accent/40
-                       disabled:opacity-50"
+            className="flex-1 rounded-xl px-3 py-2 text-xs focus:outline-none disabled:opacity-50 input-base"
           />
           {isLoading ? (
             <button onClick={handleStop}
-              className="px-3 py-2 bg-red-500/10 border border-red-500/30
-                         rounded-md text-red-400 hover:bg-red-500/20 transition flex items-center justify-center">
+              className="px-3 py-2 rounded-xl transition flex items-center justify-center"
+              style={{ background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.2)", color: "var(--danger)" }}>
               <Square className="w-3 h-3 fill-current" />
             </button>
           ) : (
             <button onClick={handleSend} disabled={!input.trim()}
-              className="px-3 py-2 bg-pureql-accent-dim border border-pureql-accent/30
-                         rounded-md text-pureql-accent hover:bg-pureql-accent/20
-                         disabled:opacity-30 transition flex items-center justify-center">
+              className="px-3 py-2 rounded-xl disabled:opacity-30 transition-all duration-150 flex items-center justify-center"
+              style={{ background: "var(--gradient-accent)", boxShadow: "var(--accent-glow-sm)", color: "white" }}>
               <ArrowUp className="w-3.5 h-3.5" />
             </button>
           )}

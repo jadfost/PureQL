@@ -230,34 +230,36 @@ export function DataPreview() {
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
       {/* Toolbar */}
-      <div className="flex items-center px-3 py-2 border-b border-pureql-border shrink-0 gap-2">
-        <span className="text-[10px] font-semibold text-zinc-500 tracking-wide">PREVIEW</span>
-        <div className="flex gap-1">
+      <div className="flex items-center px-3 py-2 border-b shrink-0 gap-2" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
+        <span className="text-[10px] font-semibold tracking-wide uppercase" style={{ color: "var(--text-faint)" }}>Preview</span>
+        <div className="flex gap-0.5">
           {panels.map((p) => (
             <button
               key={p.id}
               onClick={() => setActivePanel(p.id)}
-              className={`text-[10px] px-2.5 py-1 rounded transition ${
-                activePanel === p.id
-                  ? "bg-pureql-accent-dim text-pureql-accent border border-pureql-accent/30"
-                  : "text-zinc-500 border border-pureql-border hover:text-zinc-400"
-              }`}
+              className="text-[10px] px-2.5 py-1 rounded-lg transition-all duration-150 font-medium border"
+              style={activePanel === p.id
+                ? { background: "var(--accent-subtle)", color: "var(--accent)", borderColor: "var(--accent-border)" }
+                : { background: "transparent", color: "var(--text-faint)", borderColor: "transparent" }}
             >
               {p.label}
             </button>
           ))}
         </div>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-1.5">
           {profile && (
-            <span className="text-[10px] text-zinc-600">
+            <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>
               {(sqlRows ?? previewData).length} / {profile.rowCount.toLocaleString()} rows
             </span>
           )}
           {datasetName && (
             <button
               onClick={() => setShowAutoClean(true)}
-              className="text-[10px] px-2.5 py-1 rounded border border-pureql-accent/30 bg-pureql-accent-dim text-pureql-accent hover:bg-pureql-accent/20 transition flex items-center gap-1.5 font-medium"
+              className="text-[10px] px-2.5 py-1 rounded-lg border transition-all duration-150 flex items-center gap-1.5 font-medium"
+              style={{ borderColor: "var(--accent-border)", color: "var(--accent)", background: "var(--accent-subtle)" }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "var(--accent-muted)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "var(--accent-subtle)"; }}
             >
               <Sparkles className="w-3 h-3" />
               Auto Clean
@@ -266,7 +268,10 @@ export function DataPreview() {
           {datasetName && (
             <button
               onClick={() => setShowExport(true)}
-              className="text-[10px] px-2.5 py-1 rounded border border-pureql-border text-zinc-500 hover:text-zinc-700 hover:border-zinc-400 transition flex items-center gap-1.5"
+              className="text-[10px] px-2.5 py-1 rounded-lg border transition-all duration-150 flex items-center gap-1.5"
+              style={{ borderColor: "var(--border)", color: "var(--text-faint)", background: "transparent" }}
+              onMouseEnter={(e) => { e.currentTarget.style.borderColor = "var(--accent-border)"; e.currentTarget.style.color = "var(--accent)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-faint)"; }}
             >
               <Upload className="w-3 h-3" />
               Export
@@ -282,7 +287,7 @@ export function DataPreview() {
             <table className="w-full border-collapse text-[11px]">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th className="text-left px-2 py-1.5 border-b border-pureql-border text-zinc-600 font-semibold text-[9px] bg-pureql-dark w-10">
+                  <th className="text-left px-2 py-1.5 border-b w-10 font-semibold text-[9px]" style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--text-faint)" }}>
                     #
                   </th>
                   {columns.map((col) => (
@@ -301,13 +306,14 @@ export function DataPreview() {
                     key={i}
                     className={`${i % 2 === 0 ? "" : "bg-pureql-panel/20"} hover:bg-pureql-card/50`}
                   >
-                    <td className="px-2 py-1 border-b border-pureql-border text-zinc-600 text-[10px]">
+                    <td className="px-2 py-1 border-b text-[10px]" style={{ borderColor: "var(--border)", color: "var(--text-faint)" }}>
                       {i + 1}
                     </td>
                     {columns.map((col) => (
                       <td
                         key={col}
-                        className="px-2 py-1 border-b border-pureql-border text-zinc-400 max-w-[200px] truncate"
+                        className="px-2 py-1 border-b max-w-[200px] truncate"
+                        style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
                       >
                         {row[col] != null ? (
                           String(row[col])
@@ -321,7 +327,7 @@ export function DataPreview() {
               </tbody>
             </table>
           ) : (
-            <div className="flex items-center justify-center h-full text-zinc-600 text-xs">
+            <div className="flex items-center justify-center h-full text-xs" style={{ color: "var(--text-faint)" }}>
               No data to display
             </div>
           )}
@@ -355,7 +361,8 @@ export function DataPreview() {
               value={sqlInput}
               onChange={(e) => setSqlInput(e.target.value)}
               placeholder={"SELECT * FROM data LIMIT 100\n-- Use 'data' to reference your dataset"}
-              className="w-full h-28 bg-pureql-dark border border-pureql-border rounded-md p-2.5 font-mono text-[11px] text-zinc-300 placeholder-zinc-700 focus:outline-none focus:border-pureql-accent/50 resize-none"
+              className="w-full h-28 rounded-lg p-2.5 font-mono text-[11px] resize-none focus:outline-none"
+              style={{ background: "var(--bg-sunken)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleRunSQL();
               }}

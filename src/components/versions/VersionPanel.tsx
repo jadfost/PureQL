@@ -296,13 +296,13 @@ export function VersionPanel() {
 
   if (versions.length === 0) {
     return (
-      <div className="flex flex-col h-full items-center justify-center gap-3 p-6 text-center">
-        <div className="w-10 h-10 rounded-xl bg-pureql-panel border border-pureql-border flex items-center justify-center">
-          <GitBranch className="w-5 h-5 text-zinc-400" />
+      <div className="flex flex-col h-full items-center justify-center gap-3 p-6 text-center animate-fade-up">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: "var(--bg-sunken)", border: "1px solid var(--border)" }}>
+          <GitBranch className="w-5 h-5" style={{ color: "var(--text-faint)" }} />
         </div>
         <div>
-          <p className="text-xs font-medium text-zinc-500">No versions yet</p>
-          <p className="text-[10px] text-zinc-400 mt-0.5">Each action creates a version you can restore.</p>
+          <p className="text-xs font-medium" style={{ color: "var(--text-muted)" }}>No versions yet</p>
+          <p className="text-[10px] mt-0.5" style={{ color: "var(--text-faint)" }}>Each action creates a version you can restore.</p>
         </div>
       </div>
     );
@@ -311,13 +311,13 @@ export function VersionPanel() {
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Toolbar */}
-      <div className="flex items-center gap-1.5 px-3 py-2 border-b border-pureql-border shrink-0 flex-wrap">
+      <div className="flex items-center gap-1.5 px-3 py-2 border-b shrink-0 flex-wrap" style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
         <button onClick={handleUndo} disabled={currentIndex <= 0}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium text-zinc-500 hover:text-zinc-700 hover:bg-pureql-panel border border-transparent hover:border-pureql-border disabled:opacity-30 disabled:cursor-not-allowed transition">
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium disabled:opacity-30 disabled:cursor-not-allowed transition btn-ghost">
           <Undo2 className="w-3.5 h-3.5" />Undo
         </button>
         <button onClick={handleRedo} disabled={currentIndex >= versions.length - 1}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium text-zinc-500 hover:text-zinc-700 hover:bg-pureql-panel border border-transparent hover:border-pureql-border disabled:opacity-30 disabled:cursor-not-allowed transition">
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[11px] font-medium disabled:opacity-30 disabled:cursor-not-allowed transition btn-ghost">
           <Redo2 className="w-3.5 h-3.5" />Redo
         </button>
 
@@ -325,9 +325,7 @@ export function VersionPanel() {
         <button
           onClick={() => { setCompareMode((v) => !v); setCompareSelection([]); }}
           className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition border ${
-            compareMode
-              ? "bg-sky-500/10 border-sky-500/30 text-sky-400"
-              : "border-transparent text-zinc-500 hover:bg-pureql-panel hover:border-pureql-border hover:text-zinc-400"
+            compareMode ? "" : ""
           }`}
         >
           <GitCompare className="w-3.5 h-3.5" />Compare
