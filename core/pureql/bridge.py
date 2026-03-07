@@ -14,6 +14,10 @@ from typing import Optional
 from pathlib import Path
 
 import polars as pl
+try:
+    import duckdb as _duckdb
+except ImportError:
+    _duckdb = None
 
 from pureql.ingestion import load
 from pureql.profiling import profile
@@ -207,6 +211,123 @@ def execute_action(action_type: str, params: dict, target: str) -> dict:
                 "success": True,
                 "description": f"Exported to {path} ({fmt}).",
                 "rows_affected": 0,
+            }
+
+        # ── Analytical / Query actions ─────────────────────────────────────────
+        elif action_type in ("query", "group_by", "aggregate", "sort_by", "slice", "join", "merge"):
+            # All analytical operations execute via DuckDB SQL
+            sql = None
+
+            if action_type == "query":
+                sql = params.get("sql") or params.get("query")
+
+            elif action_type in ("group_by", "aggregate"):
+                # Build GROUP BY SQL from params
+                by_col   = params.get("by") or params.get("group_by") or params.get("column", "")
+                agg_fn   = params.get("function", "count")
+                agg_col  = params.get("on") or params.get("column", "*")
+                tbl      = params.get("table") or params.get("from") or "data"
+                having   = params.get("having", "")
+
+                if isinstance(by_col, list):
+                    by_sql = ", ".join(f'"{c}"' for c in by_col)
+                else:
+                    by_sql = f'"{by_col}"'
+
+                cols_select = params.get("columns", [])
+                if cols_select:
+                    extra = ", ".join(f'"{c}"' for c in cols_select)
+                    select_clause = f'{by_sql}, {extra}, {agg_fn}({agg_col}) AS {agg_fn}_{agg_col}'
+                else:
+                    select_clause = f'{by_sql}, {agg_fn}({agg_col}) AS {agg_fn}_{agg_col}'
+
+                sql = f'SELECT {select_clause} FROM "{tbl}" GROUP BY {by_sql}'
+                if having:
+                    sql += f' HAVING {having}'
+                sql += f' ORDER BY {agg_fn}_{agg_col} DESC'
+
+            elif action_type == "sort_by":
+                col   = params.get("column", params.get("by", ""))
+                order = params.get("order", params.get("direction", "desc")).upper()
+                tbl   = params.get("table") or "data"
+                limit = params.get("limit", "")
+                sql   = f'SELECT * FROM "{tbl}" ORDER BY "{col}" {order}'
+                if limit:
+                    sql += f' LIMIT {int(limit)}'
+
+            elif action_type == "slice":
+                start = params.get("start", 0)
+                stop  = params.get("stop", 100)
+                tbl   = params.get("table") or "data"
+                sql   = f'SELECT * FROM "{tbl}" LIMIT {stop - start} OFFSET {start}'
+
+            elif action_type in ("join", "merge"):
+                left  = params.get("left")  or params.get("table") or "data"
+                right = params.get("right") or params.get("with")
+                on    = params.get("on")    or params.get("key")
+                how   = params.get("how",   params.get("type", "INNER")).upper()
+                if right and on:
+                    if isinstance(on, list):
+                        on_sql = " AND ".join(f'"{left}"."{c}" = "{right}"."{c}"' for c in on)
+                    else:
+                        on_sql = f'"{left}"."{on}" = "{right}"."{on}"'
+                    sql = f'SELECT * FROM "{left}" {how} JOIN "{right}" ON {on_sql}'
+                else:
+                    return {"success": False, "description": "join requires 'right' dataset and 'on' column(s)."}
+
+            if not sql:
+                return {"success": False, "description": f"Could not build SQL for action '{action_type}'. Params: {params}"}
+
+            # ── Execute with DuckDB ──
+            if _duckdb is None:
+                return {"success": False, "description": "DuckDB not installed. Run: pip install duckdb"}
+
+            con = _duckdb.connect()
+            # Register all loaded datasets as DuckDB views
+            for ds_name, ds_df in state.datasets.items():
+                table_name = ds_name.replace(".csv", "").replace(".parquet", "").replace(".json", "").replace("-", "_").replace(" ", "_")
+                # Register both with and without extension as table names
+                con.register(table_name, ds_df.to_arrow())
+                con.register(ds_name, ds_df.to_arrow())
+            # Also register current df as "data" fallback
+            if state.df is not None and "data" not in state.datasets:
+                con.register("data", state.df.to_arrow())
+
+            try:
+                result_arrow = con.execute(sql).arrow()
+                result_df = pl.from_arrow(result_arrow)
+            except Exception as sql_err:
+                con.close()
+                return {"success": False, "description": f"Query error: {sql_err}\nSQL: {sql}"}
+            finally:
+                con.close()
+
+            # Store result as new active dataframe
+            state.df = result_df
+            state.dataset_name = state.dataset_name or "query_result"
+            prof2 = profile(state.df)
+
+            row_count = len(result_df)
+            col_count = len(result_df.columns)
+            description = params.get("description", f"Query result: {row_count:,} rows × {col_count} cols")
+
+            version = state.store.commit(
+                df=state.df,
+                operation="query",
+                description=description,
+                quality_score=prof2.quality_score,
+                rows_affected=row_count,
+                sql=sql,
+                datasets_used=list(state.datasets.keys()),
+            )
+
+            return {
+                "success": True,
+                "description": description,
+                "quality_score": prof2.quality_score,
+                "rows_affected": row_count,
+                "sql": sql,
+                "version": {"id": version.id, "label": version.label},
             }
 
         else:
@@ -576,8 +697,17 @@ class PureQLHandler(BaseHTTPRequestHandler):
         # If multiple datasets, add join hint
         if len(datasets_for_context) > 1:
             names = list(datasets_for_context.keys())
-            context += f"\n\nNOTE: The user has selected {len(names)} datasets: {', '.join(names)}. " \
-                       f"For operations like JOIN, MERGE or cross-dataset queries, reference them by name."
+            safe_names = [n.replace(".csv","").replace(".parquet","").replace("-","_").replace(" ","_") for n in names]
+            context += f"\n\nAVAILABLE TABLES FOR SQL QUERIES:"
+            for orig, safe in zip(names, safe_names):
+                ds_df = datasets_for_context[orig]
+                context += f"\n  - \"{orig}\" (also usable as: {safe}) — {len(ds_df)} rows, cols: {', '.join(ds_df.columns)}"
+            context += f"\n\nFor JOIN queries use exact filenames in quotes, e.g.: FROM \"{names[0]}\" JOIN \"{names[1]}\" ON ..."
+        elif len(datasets_for_context) == 1:
+            name = list(datasets_for_context.keys())[0]
+            safe = name.replace(".csv","").replace(".parquet","").replace("-","_").replace(" ","_")
+            df_ctx = list(datasets_for_context.values())[0]
+            context += f"\n\nTABLE NAME FOR SQL: \"{name}\" (or: {safe}) — {len(df_ctx)} rows"
 
         prompt_parts = []
         if context:
@@ -677,11 +807,13 @@ class PureQLHandler(BaseHTTPRequestHandler):
                 result = execute_action(action.type, action.params, action.target)
                 results.append(result)
 
-            # Update state for versions
+            # execute_action already commits versions for cleaning + query actions.
+            # Only do a fallback commit for actions that succeeded but don't self-commit.
             if state.df is not None:
                 prof2 = profile(state.df)
                 for r in results:
-                    if r.get("success") and r.get("rows_affected", 0) > 0:
+                    already_committed = r.get("version") is not None
+                    if r.get("success") and not already_committed and r.get("rows_affected", 0) > 0:
                         state.store.commit(
                             df=state.df,
                             operation=r.get("operation", "transform"),
@@ -692,6 +824,9 @@ class PureQLHandler(BaseHTTPRequestHandler):
                             datasets_used=list(datasets_for_context.keys()),
                         )
 
+            # Fresh profile after all actions ran
+            final_prof = profile(state.df).to_dict() if state.df is not None else None
+
             send_event({
                 "type": "done",
                 "explanation": interpreted.explanation,
@@ -699,6 +834,7 @@ class PureQLHandler(BaseHTTPRequestHandler):
                 "actions": [{"type": a.type, "params": a.params, "target": a.target} for a in interpreted.actions],
                 "results": results,
                 "preview": _get_preview(state.df) if state.df is not None else [],
+                "profile": final_prof,
                 "versions": state.store.get_timeline(),
                 "error": interpreted.error,
             })

@@ -87,8 +87,11 @@ export function ChatPanel() {
             for (const r of (payload.results ?? [])) {
               if (r.sql) setCurrentSQL(r.sql);
             }
-            if (payload.preview?.length)  setPreviewData(payload.preview);
-            if (payload.versions?.length) setVersions(payload.versions);
+            // Always update preview when the server sends one
+            if (payload.preview !== undefined) setPreviewData(payload.preview);
+            if (payload.versions?.length)      setVersions(payload.versions);
+            // Refresh profile if server sent one (row count may have changed)
+            if (payload.profile)               setProfile(payload.profile);
 
             const latestVersion = payload.versions?.[payload.versions.length - 1];
             updateMessage(assistantId, {
