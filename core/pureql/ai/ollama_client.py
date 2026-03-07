@@ -345,7 +345,7 @@ def generate(
     )
 
     try:
-        with urlopen(req, timeout=120) as resp:
+        with urlopen(req, timeout=300) as resp:
             data = json.loads(resp.read().decode())
             return data.get("response", "")
     except (URLError, OSError, TimeoutError) as e:
@@ -382,7 +382,7 @@ def generate_stream(
     )
 
     try:
-        with urlopen(req, timeout=120) as resp:
+        with urlopen(req, timeout=300) as resp:
             for line in resp:
                 if not line.strip():
                     continue

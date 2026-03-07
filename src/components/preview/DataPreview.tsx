@@ -1,10 +1,199 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { StatsPanel } from "./StatsPanel";
 import { DiffPanel } from "./DiffPanel";
 import { ExportDialog } from "../export/ExportDialog";
 import { runSQL, generateSchema, optimizeSQL, autoClean } from "../../lib/api";
-import { Upload, Play, Check, Sparkles, X, CheckCircle2, AlertCircle } from "lucide-react";
+import { Upload, Play, Check, Sparkles, X, CheckCircle2, AlertCircle, ArrowUpDown, ArrowUp, ArrowDown, SlidersHorizontal, ChevronDown } from "lucide-react";
+
+/* ── Types ─────────────────────────────────────────────────────────────── */
+type FilterOp = "contains" | "equals" | "starts_with" | "ends_with" | "gt" | "gte" | "lt" | "lte" | "not_empty" | "is_empty";
+interface ColumnFilter { op: FilterOp; value: string; }
+type SortDir = "asc" | "desc" | null;
+interface SortState { col: string; dir: SortDir; }
+
+const OPS: { id: FilterOp; label: string; numeric?: boolean }[] = [
+  { id: "contains",    label: "Contains" },
+  { id: "equals",      label: "= Equals" },
+  { id: "starts_with", label: "Starts with" },
+  { id: "ends_with",   label: "Ends with" },
+  { id: "gt",          label: "> Greater than",  numeric: true },
+  { id: "gte",         label: "≥ Greater or eq.", numeric: true },
+  { id: "lt",          label: "< Less than",      numeric: true },
+  { id: "lte",         label: "≤ Less or eq.",    numeric: true },
+  { id: "not_empty",   label: "Not empty" },
+  { id: "is_empty",    label: "Is empty" },
+];
+
+function applyFilter(cellVal: unknown, f: ColumnFilter): boolean {
+  const raw = cellVal == null ? "" : String(cellVal);
+  const v = f.value.trim();
+  switch (f.op) {
+    case "contains":    return raw.toLowerCase().includes(v.toLowerCase());
+    case "equals":      return raw.toLowerCase() === v.toLowerCase();
+    case "starts_with": return raw.toLowerCase().startsWith(v.toLowerCase());
+    case "ends_with":   return raw.toLowerCase().endsWith(v.toLowerCase());
+    case "gt":  { const n = parseFloat(raw); return !isNaN(n) && n >  parseFloat(v); }
+    case "gte": { const n = parseFloat(raw); return !isNaN(n) && n >= parseFloat(v); }
+    case "lt":  { const n = parseFloat(raw); return !isNaN(n) && n <  parseFloat(v); }
+    case "lte": { const n = parseFloat(raw); return !isNaN(n) && n <= parseFloat(v); }
+    case "not_empty": return raw.trim() !== "";
+    case "is_empty":  return raw.trim() === "";
+    default: return true;
+  }
+}
+
+/* ── ColumnHeaderMenu ────────────────────────────────────────────────────── */
+interface ColumnHeaderMenuProps {
+  col: string;
+  filter: ColumnFilter | null;
+  sort: SortDir;
+  onFilter: (f: ColumnFilter | null) => void;
+  onSort: (dir: SortDir) => void;
+}
+
+function ColumnHeaderMenu({ col, filter, sort, onFilter, onSort }: ColumnHeaderMenuProps) {
+  const [open, setOpen] = useState(false);
+  const [op, setOp] = useState<FilterOp>(filter?.op ?? "contains");
+  const [val, setVal] = useState(filter?.value ?? "");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handle(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    if (open) document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, [open]);
+
+  const hasFilter = filter !== null;
+  const needsValue = op !== "not_empty" && op !== "is_empty";
+
+  const handleApply = () => {
+    if (!needsValue && (op === "not_empty" || op === "is_empty")) {
+      onFilter({ op, value: "" });
+    } else if (val.trim()) {
+      onFilter({ op, value: val.trim() });
+    } else {
+      onFilter(null);
+    }
+    setOpen(false);
+  };
+
+  const handleClear = () => {
+    setVal("");
+    setOp("contains");
+    onFilter(null);
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1 group/hdr w-full text-left"
+      >
+        <span className="truncate">{col}</span>
+        <span className="ml-auto flex items-center gap-0.5 shrink-0">
+          {hasFilter && (
+            <span className="w-1.5 h-1.5 rounded-full bg-sky-400" title="Filter active" />
+          )}
+          {sort === "asc"  && <ArrowUp   className="w-3 h-3 text-sky-400" />}
+          {sort === "desc" && <ArrowDown  className="w-3 h-3 text-sky-400" />}
+          {!sort && !hasFilter && <ChevronDown className="w-2.5 h-2.5 opacity-0 group-hover/hdr:opacity-40 transition-opacity" />}
+        </span>
+      </button>
+
+      {open && (
+        <div
+          className="absolute left-0 top-full mt-1 z-50 rounded-xl shadow-xl overflow-hidden"
+          style={{
+            minWidth: 220,
+            background: "white",
+            border: "1px solid var(--border)",
+            boxShadow: "0 8px 24px rgba(0,0,0,.13)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Sort row */}
+          <div className="px-3 pt-3 pb-2 border-b" style={{ borderColor: "var(--border)" }}>
+            <div className="text-[9px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: "var(--text-faint)" }}>Sort</div>
+            <div className="flex gap-1.5">
+              {(["asc", "desc", null] as const).map((d) => (
+                <button
+                  key={String(d)}
+                  onClick={() => { onSort(d); setOpen(false); }}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition border"
+                  style={sort === d
+                    ? { background: "var(--accent-subtle)", borderColor: "var(--accent-border)", color: "var(--accent)" }
+                    : { background: "transparent", borderColor: "var(--border)", color: "var(--text-faint)" }
+                  }
+                >
+                  {d === "asc"  && <><ArrowUp   className="w-3 h-3" />A→Z</>}
+                  {d === "desc" && <><ArrowDown  className="w-3 h-3" />Z→A</>}
+                  {d === null   && <><ArrowUpDown className="w-3 h-3" />None</>}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Filter row */}
+          <div className="px-3 pt-2.5 pb-3">
+            <div className="text-[9px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: "var(--text-faint)" }}>Filter</div>
+            <select
+              value={op}
+              onChange={(e) => setOp(e.target.value as FilterOp)}
+              className="w-full rounded-lg px-2 py-1.5 text-[11px] mb-2 focus:outline-none"
+              style={{ background: "var(--bg-sunken)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+            >
+              {OPS.map((o) => (
+                <option key={o.id} value={o.id}>{o.label}</option>
+              ))}
+            </select>
+
+            {needsValue && (
+              <input
+                type={OPS.find((o) => o.id === op)?.numeric ? "number" : "text"}
+                value={val}
+                onChange={(e) => setVal(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleApply()}
+                placeholder="Value…"
+                autoFocus
+                className="w-full rounded-lg px-2.5 py-1.5 text-[11px] focus:outline-none mb-2"
+                style={{
+                  background: "var(--bg-sunken)",
+                  border: "1px solid var(--border)",
+                  color: "var(--text-secondary)",
+                }}
+              />
+            )}
+
+            <div className="flex gap-1.5">
+              <button
+                onClick={handleApply}
+                className="flex-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition"
+                style={{ background: "var(--accent)", color: "white" }}
+              >
+                Apply
+              </button>
+              {hasFilter && (
+                <button
+                  onClick={handleClear}
+                  className="px-2.5 py-1.5 rounded-lg text-[11px] transition border"
+                  style={{ borderColor: "var(--border)", color: "var(--text-faint)" }}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 
 /* ── Auto Clean Modal ────────────────────────────────────────────────────── */
 function AutoCleanModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
@@ -182,7 +371,8 @@ export function DataPreview() {
   const [sqlRunning, setSqlRunning] = useState(false);
   const [sqlError, setSqlError] = useState<string | null>(null);
   const [sqlRows, setSqlRows] = useState<Record<string, unknown>[] | null>(null);
-  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
+  const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilter>>({});
+  const [sortState, setSortState] = useState<SortState | null>(null);
 
   const panels = [
     { id: "data" as const, label: "Data" },
@@ -197,15 +387,24 @@ export function DataPreview() {
   const activeVersion = versions.find((v) => v.id === currentVersionId);
   const currentTotalRows = activeVersion?.rowCount ?? profile?.rowCount ?? 0;
 
-  // Client-side column filtering over the preview slice
-  const activeFilters = Object.entries(columnFilters).filter(([, v]) => v.trim() !== "");
-  const filteredData = activeFilters.length === 0
-    ? (sqlRows ?? previewData)
-    : (sqlRows ?? previewData).filter((row) =>
-        activeFilters.every(([col, val]) =>
-          String(row[col] ?? "").toLowerCase().includes(val.toLowerCase())
-        )
-      );
+  // Apply column filters
+  const activeFilters = Object.entries(columnFilters).filter(([, f]) => f !== null);
+  let filteredData = (sqlRows ?? previewData).filter((row) =>
+    activeFilters.every(([col, f]) => applyFilter(row[col], f))
+  );
+
+  // Apply sort
+  if (sortState?.dir) {
+    const { col, dir } = sortState;
+    filteredData = [...filteredData].sort((a, b) => {
+      const av = a[col], bv = b[col];
+      const an = parseFloat(String(av ?? "")), bn = parseFloat(String(bv ?? ""));
+      let cmp = 0;
+      if (!isNaN(an) && !isNaN(bn)) cmp = an - bn;
+      else cmp = String(av ?? "").localeCompare(String(bv ?? ""));
+      return dir === "asc" ? cmp : -cmp;
+    });
+  }
 
   const hasFilters = activeFilters.length > 0;
 
@@ -266,19 +465,25 @@ export function DataPreview() {
 
         <div className="ml-auto flex items-center gap-1.5">
           {profile && (
-            <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>
+            <span className="text-[10px] flex items-center gap-1.5" style={{ color: "var(--text-faint)" }}>
               {hasFilters
                 ? `${filteredData.length} filtered`
                 : `${Math.min(filteredData.length, 100)} / ${currentTotalRows.toLocaleString()} rows`}
+              {sortState?.dir && (
+                <span className="flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded" style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}>
+                  {sortState.dir === "asc" ? <ArrowUp className="w-2.5 h-2.5" /> : <ArrowDown className="w-2.5 h-2.5" />}
+                  {sortState.col}
+                </span>
+              )}
             </span>
           )}
-          {hasFilters && (
+          {(hasFilters || sortState) && (
             <button
-              onClick={() => setColumnFilters({})}
+              onClick={() => { setColumnFilters({}); setSortState(null); }}
               className="text-[10px] px-2 py-0.5 rounded-lg border transition-all flex items-center gap-1"
               style={{ borderColor: "var(--accent-border)", color: "var(--accent)", background: "var(--accent-subtle)" }}
             >
-              <X className="w-2.5 h-2.5" /> Clear filters
+              <X className="w-2.5 h-2.5" /> Clear {hasFilters && sortState ? "all" : hasFilters ? "filters" : "sort"}
             </button>
           )}
           {datasetName && (
@@ -315,38 +520,34 @@ export function DataPreview() {
             <table className="w-full border-collapse text-[11px]">
               <thead className="sticky top-0 z-10">
                 <tr>
-                  <th className="text-left px-2 py-1.5 border-b w-10 font-semibold text-[9px]" style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--text-faint)" }}>
+                  <th
+                    className="text-left px-2 py-1.5 border-b w-10 font-semibold text-[9px]"
+                    style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--text-faint)" }}
+                  >
                     #
                   </th>
                   {columns.map((col) => (
                     <th
                       key={col}
-                      className="text-left px-2 py-1.5 border-b border-pureql-border text-zinc-500 font-semibold text-[10px] bg-pureql-dark whitespace-nowrap"
+                      className="text-left px-2 py-1.5 border-b bg-pureql-dark text-zinc-500 font-semibold text-[10px] whitespace-nowrap"
+                      style={{ borderColor: "var(--border)", minWidth: 100 }}
                     >
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-                {/* Filter row */}
-                <tr style={{ background: "var(--bg)" }}>
-                  <td className="px-1 py-1 border-b" style={{ borderColor: "var(--border)" }} />
-                  {columns.map((col) => (
-                    <td key={col} className="px-1 py-1 border-b" style={{ borderColor: "var(--border)" }}>
-                      <input
-                        type="text"
-                        value={columnFilters[col] ?? ""}
-                        onChange={(e) =>
-                          setColumnFilters((prev) => ({ ...prev, [col]: e.target.value }))
+                      <ColumnHeaderMenu
+                        col={col}
+                        filter={columnFilters[col] ?? null}
+                        sort={sortState?.col === col ? sortState.dir : null}
+                        onFilter={(f) =>
+                          setColumnFilters((prev) => {
+                            const next = { ...prev };
+                            if (f === null) delete next[col]; else next[col] = f;
+                            return next;
+                          })
                         }
-                        placeholder="filter…"
-                        className="w-full rounded px-1.5 py-0.5 text-[10px] focus:outline-none"
-                        style={{
-                          background: columnFilters[col] ? "var(--accent-subtle)" : "var(--bg-sunken)",
-                          border: `1px solid ${columnFilters[col] ? "var(--accent-border)" : "var(--border)"}`,
-                          color: "var(--text-secondary)",
-                        }}
+                        onSort={(dir) =>
+                          setSortState(dir ? { col, dir } : null)
+                        }
                       />
-                    </td>
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -376,14 +577,18 @@ export function DataPreview() {
                 ))}
                 {filteredData.length === 0 && hasFilters && (
                   <tr>
-                    <td colSpan={columns.length + 1} className="px-4 py-6 text-center text-[11px]" style={{ color: "var(--text-faint)" }}>
-                      No rows match the current filters.
+                    <td
+                      colSpan={columns.length + 1}
+                      className="px-4 py-6 text-center text-[11px]"
+                      style={{ color: "var(--text-faint)" }}
+                    >
+                      No rows match the current filters.{" "}
                       <button
                         onClick={() => setColumnFilters({})}
-                        className="ml-2 text-[10px] underline"
+                        className="underline"
                         style={{ color: "var(--accent)" }}
                       >
-                        Clear filters
+                        Clear all
                       </button>
                     </td>
                   </tr>

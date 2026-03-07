@@ -536,7 +536,7 @@ class PureQLHandler(BaseHTTPRequestHandler):
                                    "preview": [...], "error": null}
           data: {"type": "error",  "message": "..."}
         """
-        from pureql.ai.ollama_client import generate_stream, is_ollama_running
+        from pureql.ai.ollama_client import generate_stream, is_ollama_running, start_ollama as _start_ollama
         from pureql.ai.interpreter import build_context, _parse_response, SYSTEM_PROMPT
         from pureql.ai.cloud_providers import generate_cloud
 
@@ -604,16 +604,37 @@ class PureQLHandler(BaseHTTPRequestHandler):
 
             if state.ai_provider == "ollama":
                 if not is_ollama_running():
-                    send_event({"type": "error", "message": "Ollama is not running."})
-                    return
-                for chunk in generate_stream(
-                    prompt=full_prompt,
-                    model=state.ai_model,
-                    system=SYSTEM_PROMPT,
-                    temperature=0.1,
-                ):
-                    full_text.append(chunk)
-                    send_event({"type": "token", "text": chunk})
+                    send_event({"type": "token", "text": "Starting Ollama… "})
+                    started = _start_ollama()
+                    if not started:
+                        send_event({"type": "error", "message": "Ollama is not running. Please start it with 'ollama serve' and try again."})
+                        return
+                    full_text = []
+                last_err = None
+                for attempt in range(2):
+                    try:
+                        for chunk in generate_stream(
+                            prompt=full_prompt,
+                            model=state.ai_model,
+                            system=SYSTEM_PROMPT,
+                            temperature=0.1,
+                        ):
+                            full_text.append(chunk)
+                            send_event({"type": "token", "text": chunk})
+                        last_err = None
+                        break
+                    except ConnectionError as ce:
+                        last_err = ce
+                        err_str = str(ce).lower()
+                        if ("timed out" in err_str or "timeout" in err_str) and attempt == 0:
+                            import time as _time
+                            send_event({"type": "token", "text": "\n⏳ Model is loading into memory, retrying in 5s…\n"})
+                            _time.sleep(5)
+                            full_text = []
+                            continue
+                        raise
+                if last_err:
+                    raise last_err
             else:
                 # Cloud providers don't stream here — generate full then emit tokens word-by-word
                 raw = generate_cloud(
