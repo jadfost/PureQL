@@ -168,6 +168,15 @@ export async function checkout(versionId: string): Promise<{
   return request("/checkout", "POST", { versionId });
 }
 
+export async function deleteVersion(versionId: string): Promise<{
+  success: boolean;
+  deletedId: string;
+  versions: VersionData[];
+  currentId: string;
+}> {
+  return request("/versions/delete", "POST", { versionId });
+}
+
 // ── SQL ──
 
 export async function generateSchema(

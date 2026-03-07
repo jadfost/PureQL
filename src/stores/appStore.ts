@@ -45,6 +45,10 @@ interface AppState {
   addLoadedDataset: (ds: DatasetEntry) => void;
   removeLoadedDataset: (name: string) => void;
 
+  // Names of AI-result datasets (shown with a special badge in the picker)
+  resultDatasetNames: Set<string>;
+  addResultDatasetName: (name: string) => void;
+
   // Selected datasets for the current prompt
   selectedDatasets: string[];
   setSelectedDatasets: (names: string[]) => void;
@@ -105,7 +109,12 @@ export const useAppStore = create<AppState>((set) => ({
     set((s) => ({
       loadedDatasets: s.loadedDatasets.filter((d) => d.name !== name),
       selectedDatasets: s.selectedDatasets.filter((n) => n !== name),
+      resultDatasetNames: new Set([...s.resultDatasetNames].filter((n) => n !== name)),
     })),
+
+  resultDatasetNames: new Set<string>(),
+  addResultDatasetName: (name) =>
+    set((s) => ({ resultDatasetNames: new Set([...s.resultDatasetNames, name]) })),
 
   selectedDatasets: [],
   setSelectedDatasets: (names) => set({ selectedDatasets: names }),

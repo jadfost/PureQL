@@ -382,7 +382,7 @@ def execute_action(action_type: str, params: dict, target: str) -> dict:
                         last_sql_error = str(e2)
 
             if result_df is None:
-                return {"success": False, "description": f"Query error: {last_sql_error}\nSQL: {sql}"}
+                return {"success": False, "description": f"Query error: {last_sql_error}\nSQL: {sql}", "sql": sql}
 
             # Store result as new active dataframe
             state.df = result_df
@@ -396,6 +396,20 @@ def execute_action(action_type: str, params: dict, target: str) -> dict:
             row_count = len(result_df)
             col_count = len(result_df.columns)
             description = params.get("description", f"Query result: {row_count:,} rows × {col_count} cols")
+
+            # ── Register result as a named dataset so it appears in the picker ──
+            # Generate a short slug from the description (max 24 chars, no spaces)
+            import re as _re
+            slug_raw = params.get("description", "result")
+            slug = _re.sub(r"[^a-zA-Z0-9_]", "_", slug_raw)[:24].strip("_").lower() or "result"
+            # Find a unique name (result_1.csv, result_2.csv, …)
+            result_ds_name = f"{slug}.result"
+            i = 1
+            while result_ds_name in state.datasets:
+                result_ds_name = f"{slug}_{i}.result"
+                i += 1
+            state.datasets[result_ds_name] = result_df
+            state.invalidate_dataset(result_ds_name)
 
             version = state.store.commit(
                 df=state.df,
@@ -414,6 +428,9 @@ def execute_action(action_type: str, params: dict, target: str) -> dict:
                 "rows_affected": row_count,
                 "sql": sql,
                 "version": {"id": version.id, "label": version.label},
+                "resultDatasetName": result_ds_name,
+                "resultPreview": result_df.head(5).to_dicts(),
+                "resultColumns": list(result_df.columns),
             }
 
         else:
@@ -580,6 +597,8 @@ class PureQLHandler(BaseHTTPRequestHandler):
                 self._handle_datasets_remove(data)
             elif path == "/versions/compare":
                 self._handle_versions_compare(data)
+            elif path == "/versions/delete":
+                self._handle_versions_delete(data)
             elif path == "/diff":
                 self._handle_diff(data)
             elif path == "/apikey/save":
@@ -1016,6 +1035,7 @@ class PureQLHandler(BaseHTTPRequestHandler):
                 "preview": _get_preview(state.df) if state.df is not None else [],
                 "profile": final_prof,
                 "versions": state.store.get_timeline(),
+                "currentVersionId": state.store.current_id,
                 "error": interpreted.error,
             })
 
@@ -1718,6 +1738,32 @@ class PureQLHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         """Suppress default logging, print to stderr for Tauri to capture."""
         print(f"[PureQL] {args[0]}", file=sys.stderr)
+
+    def _handle_versions_delete(self, data: dict):
+        """Delete a specific version from the store.
+
+        Cannot delete the currently active version or v1 Original.
+        """
+        version_id = data.get("versionId", "")
+        if not version_id:
+            self._respond(400, {"error": "Missing versionId"})
+            return
+
+        if version_id == state.store.current_id:
+            self._respond(400, {"error": "Cannot delete the currently active version. Checkout another version first."})
+            return
+
+        deleted = state.store.delete_version(version_id)
+        if not deleted:
+            self._respond(404, {"error": f"Version '{version_id}' not found."})
+            return
+
+        self._respond(200, {
+            "success": True,
+            "deletedId": version_id,
+            "versions": state.store.get_timeline(),
+            "currentId": state.store.current_id,
+        })
 
 
 def _auto_repair_sql(sql: str, error: str, datasets: dict) -> Optional[str]:

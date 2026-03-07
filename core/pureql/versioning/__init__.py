@@ -225,6 +225,36 @@ class VersionStore:
                 return v
         return None
 
+    def delete_version(self, version_id: str) -> bool:
+        """Delete a version and its snapshot. Returns True if deleted.
+
+        Re-parents any child versions so the history stays connected.
+        Cannot delete the initial version (v1 Original).
+        """
+        version = self._find_version(version_id)
+        if version is None:
+            return False
+
+        # Re-parent children: any version whose parent was the deleted one
+        # now points to the deleted version's parent
+        for v in self.versions:
+            if v.parent_id == version_id:
+                v.parent_id = version.parent_id
+
+        # Remove from list and snapshots
+        self.versions = [v for v in self.versions if v.id != version_id]
+        self._snapshots.pop(version_id, None)
+
+        # Re-number labels so they stay sequential (v1, v2, v3…)
+        for i, v in enumerate(self.versions):
+            op_name = v.operation.replace("_", " ").title()
+            if i == 0:
+                v.label = "v1 Original"
+            else:
+                v.label = f"v{i + 1} {op_name}"
+
+        return True
+
     @property
     def version_count(self) -> int:
         return len(self.versions)

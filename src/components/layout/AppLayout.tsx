@@ -303,7 +303,7 @@ export function AppLayout() {
   const {
     datasetName, profile, versions, activeModelInfo,
     loadedDatasets, addLoadedDataset,
-    hasAIResult,
+    hasAIResult, currentVersionId,
   } = useAppStore();
 
   // ── Panel state ──
@@ -415,10 +415,16 @@ export function AppLayout() {
   const activePanelH = useResize(200, 100, 400, "v", false);
 
   // ── Header stats ──
-  const latestVersion = versions.length > 0 ? versions[versions.length - 1] : null;
-  const displayScore  = latestVersion?.qualityScore ?? profile?.qualityScore ?? null;
-  const displayRows   = profile?.rowCount ?? null;
-  const displayCols   = profile?.colCount ?? null;
+  // Header stats — always reflect the active version, not the raw loaded file
+  const activeVersion  = versions.find((v) => v.id === currentVersionId)
+    ?? (versions.length > 0 ? versions[versions.length - 1] : null);
+  const displayScore   = activeVersion?.qualityScore ?? profile?.qualityScore ?? null;
+  const displayRows    = activeVersion?.rowCount ?? profile?.rowCount ?? null;
+  const displayCols    = activeVersion?.colCount ?? profile?.colCount ?? null;
+  // Label shown next to the logo: result version name when AI has run, else filename
+  const headerLabel    = hasAIResult && activeVersion
+    ? activeVersion.label
+    : datasetName ?? null;
 
   const handleQuickAdd = async () => {
     const input = document.createElement("input");
@@ -492,9 +498,9 @@ export function AppLayout() {
           </button>
         )}
 
-        {datasetName && (
-          <span className="text-[11px] ml-2 truncate max-w-[160px]" style={{ color: "var(--text-faint)" }}>
-            — {datasetName}
+        {headerLabel && (
+          <span className="text-[11px] ml-2 truncate max-w-[200px]" style={{ color: hasAIResult ? "var(--accent)" : "var(--text-faint)" }}>
+            — {headerLabel}
           </span>
         )}
 
