@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { getDatasetPreview } from "../../lib/api";
+import { DataTable } from "../shared/DataTable";
 import { ChevronDown, BarChart2, Table2, X, RefreshCw } from "lucide-react";
 
 interface MiniPreviewProps {
@@ -126,30 +127,7 @@ export function MiniPreview({ slot, onRemove }: MiniPreviewProps) {
           </div>
         ) : tab === "data" ? (
           rows.length > 0 ? (
-            <table className="w-full border-collapse text-[10px]">
-              <thead className="sticky top-0 z-10">
-                <tr>
-                  <th className="text-left px-2 py-1 border-b border-[var(--border)] text-[var(--text-faint)] font-semibold text-[9px] bg-[var(--bg)] w-7">#</th>
-                  {cols.map((col) => (
-                    <th key={col} className="text-left px-2 py-1 border-b border-[var(--border)] text-[var(--text-muted)] font-semibold text-[9px] bg-[var(--bg)] whitespace-nowrap">
-                      {col}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, i) => (
-                  <tr key={i} className={`${i % 2 === 0 ? "" : "bg-[var(--bg-sunken)]/40"} hover:bg-[var(--accent-subtle)] transition-colors`}>
-                    <td className="px-2 py-1 border-b border-[var(--border)] text-[var(--text-faint)] text-[9px]">{i + 1}</td>
-                    {cols.map((col) => (
-                      <td key={col} className="px-2 py-1 border-b border-[var(--border)] text-[var(--text-muted)] max-w-[120px] truncate">
-                        {row[col] != null ? String(row[col]) : <span className="text-red-400/50 italic">null</span>}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable rows={rows} total={ds?.rowCount} compact showToolbar />
           ) : (
             <div className="flex flex-col items-center justify-center h-full gap-2">
               <span className="text-[11px] text-[var(--text-faint)]">Select a dataset to preview</span>

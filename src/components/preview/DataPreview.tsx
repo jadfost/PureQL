@@ -1,360 +1,12 @@
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { StatsPanel } from "./StatsPanel";
 import { DiffPanel } from "./DiffPanel";
 import { ExportDialog } from "../export/ExportDialog";
+import { DataTable } from "../shared/DataTable";
 import { runSQL, generateSchema, optimizeSQL, autoClean } from "../../lib/api";
-import { Upload, Play, Check, Sparkles, X, CheckCircle2, AlertCircle, ArrowUpDown, ArrowUp, ArrowDown, SlidersHorizontal, ChevronDown } from "lucide-react";
+import { Upload, Play, Check, Sparkles, X, CheckCircle2, AlertCircle, ArrowUp, ArrowDown } from "lucide-react";
 
-/* ── Types ─────────────────────────────────────────────────────────────── */
-type FilterOp = "contains" | "equals" | "starts_with" | "ends_with" | "gt" | "gte" | "lt" | "lte" | "not_empty" | "is_empty";
-interface ColumnFilter { op: FilterOp; value: string; }
-type SortDir = "asc" | "desc" | null;
-interface SortState { col: string; dir: SortDir; }
-
-const OPS: { id: FilterOp; label: string; numeric?: boolean }[] = [
-  { id: "contains",    label: "Contains" },
-  { id: "equals",      label: "= Equals" },
-  { id: "starts_with", label: "Starts with" },
-  { id: "ends_with",   label: "Ends with" },
-  { id: "gt",          label: "> Greater than",  numeric: true },
-  { id: "gte",         label: "≥ Greater or eq.", numeric: true },
-  { id: "lt",          label: "< Less than",      numeric: true },
-  { id: "lte",         label: "≤ Less or eq.",    numeric: true },
-  { id: "not_empty",   label: "Not empty" },
-  { id: "is_empty",    label: "Is empty" },
-];
-
-function applyFilter(cellVal: unknown, f: ColumnFilter): boolean {
-  const raw = cellVal == null ? "" : String(cellVal);
-  const v = f.value.trim();
-  switch (f.op) {
-    case "contains":    return raw.toLowerCase().includes(v.toLowerCase());
-    case "equals":      return raw.toLowerCase() === v.toLowerCase();
-    case "starts_with": return raw.toLowerCase().startsWith(v.toLowerCase());
-    case "ends_with":   return raw.toLowerCase().endsWith(v.toLowerCase());
-    case "gt":  { const n = parseFloat(raw); return !isNaN(n) && n >  parseFloat(v); }
-    case "gte": { const n = parseFloat(raw); return !isNaN(n) && n >= parseFloat(v); }
-    case "lt":  { const n = parseFloat(raw); return !isNaN(n) && n <  parseFloat(v); }
-    case "lte": { const n = parseFloat(raw); return !isNaN(n) && n <= parseFloat(v); }
-    case "not_empty": return raw.trim() !== "";
-    case "is_empty":  return raw.trim() === "";
-    default: return true;
-  }
-}
-
-/* ── ColumnHeaderMenu ────────────────────────────────────────────────────── */
-interface ColumnHeaderMenuProps {
-  col: string;
-  filter: ColumnFilter | null;
-  sort: SortDir;
-  onFilter: (f: ColumnFilter | null) => void;
-  onSort: (dir: SortDir) => void;
-}
-
-function ColumnHeaderMenu({ col, filter, sort, onFilter, onSort }: ColumnHeaderMenuProps) {
-  const [open, setOpen] = useState(false);
-  const [op, setOp] = useState<FilterOp>(filter?.op ?? "contains");
-  const [val, setVal] = useState(filter?.value ?? "");
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function handle(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    if (open) document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
-  }, [open]);
-
-  const hasFilter = filter !== null;
-  const needsValue = op !== "not_empty" && op !== "is_empty";
-
-  const handleApply = () => {
-    if (!needsValue && (op === "not_empty" || op === "is_empty")) {
-      onFilter({ op, value: "" });
-    } else if (val.trim()) {
-      onFilter({ op, value: val.trim() });
-    } else {
-      onFilter(null);
-    }
-    setOpen(false);
-  };
-
-  const handleClear = () => {
-    setVal("");
-    setOp("contains");
-    onFilter(null);
-    setOpen(false);
-  };
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 group/hdr w-full text-left"
-      >
-        <span className="truncate">{col}</span>
-        <span className="ml-auto flex items-center gap-0.5 shrink-0">
-          {hasFilter && (
-            <span className="w-1.5 h-1.5 rounded-full bg-sky-400" title="Filter active" />
-          )}
-          {sort === "asc"  && <ArrowUp   className="w-3 h-3 text-sky-400" />}
-          {sort === "desc" && <ArrowDown  className="w-3 h-3 text-sky-400" />}
-          {!sort && !hasFilter && <ChevronDown className="w-2.5 h-2.5 opacity-0 group-hover/hdr:opacity-40 transition-opacity" />}
-        </span>
-      </button>
-
-      {open && (
-        <div
-          className="absolute left-0 top-full mt-1 z-50 rounded-xl shadow-xl overflow-hidden"
-          style={{
-            minWidth: 220,
-            background: "white",
-            border: "1px solid var(--border)",
-            boxShadow: "0 8px 24px rgba(0,0,0,.13)",
-          }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Sort row */}
-          <div className="px-3 pt-3 pb-2 border-b" style={{ borderColor: "var(--border)" }}>
-            <div className="text-[9px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: "var(--text-faint)" }}>Sort</div>
-            <div className="flex gap-1.5">
-              {(["asc", "desc", null] as const).map((d) => (
-                <button
-                  key={String(d)}
-                  onClick={() => { onSort(d); setOpen(false); }}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[10px] font-medium transition border"
-                  style={sort === d
-                    ? { background: "var(--accent-subtle)", borderColor: "var(--accent-border)", color: "var(--accent)" }
-                    : { background: "transparent", borderColor: "var(--border)", color: "var(--text-faint)" }
-                  }
-                >
-                  {d === "asc"  && <><ArrowUp   className="w-3 h-3" />A→Z</>}
-                  {d === "desc" && <><ArrowDown  className="w-3 h-3" />Z→A</>}
-                  {d === null   && <><ArrowUpDown className="w-3 h-3" />None</>}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Filter row */}
-          <div className="px-3 pt-2.5 pb-3">
-            <div className="text-[9px] font-semibold uppercase tracking-widest mb-1.5" style={{ color: "var(--text-faint)" }}>Filter</div>
-            <select
-              value={op}
-              onChange={(e) => setOp(e.target.value as FilterOp)}
-              className="w-full rounded-lg px-2 py-1.5 text-[11px] mb-2 focus:outline-none"
-              style={{ background: "var(--bg-sunken)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
-            >
-              {OPS.map((o) => (
-                <option key={o.id} value={o.id}>{o.label}</option>
-              ))}
-            </select>
-
-            {needsValue && (
-              <input
-                type={OPS.find((o) => o.id === op)?.numeric ? "number" : "text"}
-                value={val}
-                onChange={(e) => setVal(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleApply()}
-                placeholder="Value…"
-                autoFocus
-                className="w-full rounded-lg px-2.5 py-1.5 text-[11px] focus:outline-none mb-2"
-                style={{
-                  background: "var(--bg-sunken)",
-                  border: "1px solid var(--border)",
-                  color: "var(--text-secondary)",
-                }}
-              />
-            )}
-
-            <div className="flex gap-1.5">
-              <button
-                onClick={handleApply}
-                className="flex-1 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition"
-                style={{ background: "var(--accent)", color: "white" }}
-              >
-                Apply
-              </button>
-              {hasFilter && (
-                <button
-                  onClick={handleClear}
-                  className="px-2.5 py-1.5 rounded-lg text-[11px] transition border"
-                  style={{ borderColor: "var(--border)", color: "var(--text-faint)" }}
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-
-
-/* ── Auto Clean Modal ────────────────────────────────────────────────────── */
-function AutoCleanModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
-  const { setPreviewData, setVersions, setLoading, isLoading, profile } = useAppStore();
-  const [ops, setOps]         = useState<{ operation: string; description: string; rowsAffected: number }[]>([]);
-  const [newScore, setNewScore] = useState<number | null>(null);
-  const [error, setError]     = useState<string | null>(null);
-  const [started, setStarted] = useState(false);
-
-  const handleRun = async () => {
-    setStarted(true);
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await autoClean();
-      if (res.preview)  setPreviewData(res.preview);
-      if (res.versions) setVersions(res.versions);
-      setOps(res.operations ?? []);
-      setNewScore(res.qualityScore ?? null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Auto-clean failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const isDone = started && !isLoading && !error;
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
-      <div className="w-[440px] flex flex-col bg-white border border-pureql-border rounded-2xl shadow-2xl overflow-hidden">
-
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-pureql-border">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-pureql-accent-dim border border-pureql-accent/20 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-pureql-accent" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-zinc-800">Auto Clean</h2>
-              <p className="text-[10px] text-zinc-400">AI-powered dataset cleaning</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="text-zinc-400 hover:text-zinc-600">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="p-5 space-y-4">
-          {/* Current state */}
-          {profile && !started && (
-            <div className="grid grid-cols-2 gap-3">
-              <div className="px-4 py-3 rounded-xl bg-pureql-panel border border-pureql-border">
-                <p className="text-[9px] text-zinc-400 uppercase tracking-widest mb-1">Current score</p>
-                <span className={`text-2xl font-black ${
-                  profile.qualityScore >= 80 ? "text-emerald-500" :
-                  profile.qualityScore >= 60 ? "text-amber-500" : "text-red-400"
-                }`}>{profile.qualityScore}</span>
-                <span className="text-sm text-zinc-400">/100</span>
-              </div>
-              <div className="px-4 py-3 rounded-xl bg-pureql-panel border border-pureql-border">
-                <p className="text-[9px] text-zinc-400 uppercase tracking-widest mb-1">Issues found</p>
-                <span className="text-2xl font-black text-zinc-700">{profile.issues?.length ?? 0}</span>
-                <span className="text-sm text-zinc-400"> items</span>
-              </div>
-            </div>
-          )}
-
-          {/* Issues list */}
-          {profile?.issues && profile.issues.length > 0 && !started && (
-            <div className="space-y-1">
-              <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Will fix</p>
-              {profile.issues.slice(0, 5).map((issue, i) => (
-                <div key={i} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200">
-                  <Sparkles className="w-3 h-3 text-amber-500 shrink-0" />
-                  <span className="text-[11px] text-amber-700">{issue}</span>
-                </div>
-              ))}
-              {profile.issues.length > 5 && (
-                <p className="text-[10px] text-zinc-400 pl-1">+{profile.issues.length - 5} more issues</p>
-              )}
-            </div>
-          )}
-
-          {/* Running */}
-          {started && isLoading && (
-            <div className="flex flex-col items-center gap-3 py-4">
-              <div className="w-10 h-10 border-2 border-pureql-accent border-t-transparent rounded-full animate-spin" />
-              <p className="text-sm font-medium text-zinc-500">Cleaning your dataset…</p>
-              <p className="text-[10px] text-zinc-400">Detecting duplicates, outliers, and format issues</p>
-            </div>
-          )}
-
-          {/* Error */}
-          {error && (
-            <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-red-50 border border-red-200">
-              <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-              <span className="text-[11px] text-red-600">{error}</span>
-            </div>
-          )}
-
-          {/* Results */}
-          {isDone && (
-            <div className="space-y-2">
-              {/* Score improvement */}
-              {newScore !== null && profile && (
-                <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-emerald-50 border border-emerald-200">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-                  <div>
-                    <p className="text-[11px] font-semibold text-emerald-700">Cleaning complete!</p>
-                    <p className="text-[10px] text-emerald-600">
-                      Score: <strong>{profile.qualityScore}</strong> → <strong>{newScore}/100</strong>
-                      {newScore > profile.qualityScore && ` (+${newScore - profile.qualityScore})`}
-                    </p>
-                  </div>
-                </div>
-              )}
-              {/* Operations list */}
-              {ops.length > 0 ? (
-                <div className="space-y-1 max-h-48 overflow-y-auto">
-                  <p className="text-[10px] font-semibold text-zinc-400 uppercase tracking-widest">Operations applied</p>
-                  {ops.map((op, i) => (
-                    <div key={i} className="flex items-start gap-2 px-3 py-2 rounded-lg border border-pureql-border bg-white">
-                      <Check className="w-3 h-3 text-emerald-500 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="text-[11px] font-medium text-zinc-700">{op.description}</p>
-                        {op.rowsAffected > 0 && (
-                          <p className="text-[9px] text-zinc-400">{op.rowsAffected.toLocaleString()} rows affected</p>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-sky-50 border border-sky-200">
-                  <CheckCircle2 className="w-4 h-4 text-sky-400 shrink-0" />
-                  <span className="text-[11px] text-sky-700">Dataset is already clean — no changes needed!</span>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-pureql-border bg-pureql-panel">
-          <button onClick={isDone ? onDone : onClose}
-            className="px-4 py-2 text-[11px] font-medium text-zinc-500 hover:text-zinc-700 transition">
-            {isDone ? "Close" : "Cancel"}
-          </button>
-          {!started && (
-            <button onClick={handleRun}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-pureql-accent text-white text-[11px] font-semibold hover:bg-sky-600 transition">
-              <Sparkles className="w-3.5 h-3.5" />
-              Run Auto Clean
-            </button>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ── DataPreview ─────────────────────────────────────────────────────────── */
 
@@ -371,8 +23,7 @@ export function DataPreview() {
   const [sqlRunning, setSqlRunning] = useState(false);
   const [sqlError, setSqlError] = useState<string | null>(null);
   const [sqlRows, setSqlRows] = useState<Record<string, unknown>[] | null>(null);
-  const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilter>>({});
-  const [sortState, setSortState] = useState<SortState | null>(null);
+
 
   const panels = [
     { id: "data" as const, label: "Data" },
@@ -381,32 +32,10 @@ export function DataPreview() {
     { id: "diff" as const, label: "Diff" },
   ];
 
-  const columns = previewData.length > 0 ? Object.keys(previewData[0]) : [];
-
   // Use active version's rowCount if available, otherwise profile total
   const activeVersion = versions.find((v) => v.id === currentVersionId);
   const currentTotalRows = activeVersion?.rowCount ?? profile?.rowCount ?? 0;
-
-  // Apply column filters
-  const activeFilters = Object.entries(columnFilters).filter(([, f]) => f !== null);
-  let filteredData = (sqlRows ?? previewData).filter((row) =>
-    activeFilters.every(([col, f]) => applyFilter(row[col], f))
-  );
-
-  // Apply sort
-  if (sortState?.dir) {
-    const { col, dir } = sortState;
-    filteredData = [...filteredData].sort((a, b) => {
-      const av = a[col], bv = b[col];
-      const an = parseFloat(String(av ?? "")), bn = parseFloat(String(bv ?? ""));
-      let cmp = 0;
-      if (!isNaN(an) && !isNaN(bn)) cmp = an - bn;
-      else cmp = String(av ?? "").localeCompare(String(bv ?? ""));
-      return dir === "asc" ? cmp : -cmp;
-    });
-  }
-
-  const hasFilters = activeFilters.length > 0;
+  const displayRows = sqlRows ?? previewData;
 
   const handleRunSQL = async () => {
     if (!sqlInput.trim()) return;
@@ -465,26 +94,9 @@ export function DataPreview() {
 
         <div className="ml-auto flex items-center gap-1.5">
           {profile && (
-            <span className="text-[10px] flex items-center gap-1.5" style={{ color: "var(--text-faint)" }}>
-              {hasFilters
-                ? `${filteredData.length} filtered`
-                : `${Math.min(filteredData.length, 100)} / ${currentTotalRows.toLocaleString()} rows`}
-              {sortState?.dir && (
-                <span className="flex items-center gap-0.5 text-[9px] px-1.5 py-0.5 rounded" style={{ background: "var(--accent-subtle)", color: "var(--accent)" }}>
-                  {sortState.dir === "asc" ? <ArrowUp className="w-2.5 h-2.5" /> : <ArrowDown className="w-2.5 h-2.5" />}
-                  {sortState.col}
-                </span>
-              )}
+            <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>
+              {`${Math.min(displayRows.length, 100)} / ${currentTotalRows.toLocaleString()} rows`}
             </span>
-          )}
-          {(hasFilters || sortState) && (
-            <button
-              onClick={() => { setColumnFilters({}); setSortState(null); }}
-              className="text-[10px] px-2 py-0.5 rounded-lg border transition-all flex items-center gap-1"
-              style={{ borderColor: "var(--accent-border)", color: "var(--accent)", background: "var(--accent-subtle)" }}
-            >
-              <X className="w-2.5 h-2.5" /> Clear {hasFilters && sortState ? "all" : hasFilters ? "filters" : "sort"}
-            </button>
           )}
           {datasetName && (
             <button
@@ -515,91 +127,12 @@ export function DataPreview() {
 
       {/* Data Table */}
       {activePanel === "data" && (
-        <div className="flex-1 overflow-auto">
-          {previewData.length > 0 ? (
-            <table className="w-full border-collapse text-[11px]">
-              <thead className="sticky top-0 z-10">
-                <tr>
-                  <th
-                    className="text-left px-2 py-1.5 border-b w-10 font-semibold text-[9px]"
-                    style={{ borderColor: "var(--border)", background: "var(--bg)", color: "var(--text-faint)" }}
-                  >
-                    #
-                  </th>
-                  {columns.map((col) => (
-                    <th
-                      key={col}
-                      className="text-left px-2 py-1.5 border-b bg-pureql-dark text-zinc-500 font-semibold text-[10px] whitespace-nowrap"
-                      style={{ borderColor: "var(--border)", minWidth: 100 }}
-                    >
-                      <ColumnHeaderMenu
-                        col={col}
-                        filter={columnFilters[col] ?? null}
-                        sort={sortState?.col === col ? sortState.dir : null}
-                        onFilter={(f) =>
-                          setColumnFilters((prev) => {
-                            const next = { ...prev };
-                            if (f === null) delete next[col]; else next[col] = f;
-                            return next;
-                          })
-                        }
-                        onSort={(dir) =>
-                          setSortState(dir ? { col, dir } : null)
-                        }
-                      />
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filteredData.map((row, i) => (
-                  <tr
-                    key={i}
-                    className={`${i % 2 === 0 ? "" : "bg-pureql-panel/20"} hover:bg-pureql-card/50`}
-                  >
-                    <td className="px-2 py-1 border-b text-[10px]" style={{ borderColor: "var(--border)", color: "var(--text-faint)" }}>
-                      {i + 1}
-                    </td>
-                    {columns.map((col) => (
-                      <td
-                        key={col}
-                        className="px-2 py-1 border-b max-w-[200px] truncate"
-                        style={{ borderColor: "var(--border)", color: "var(--text-secondary)" }}
-                      >
-                        {row[col] != null ? (
-                          String(row[col])
-                        ) : (
-                          <span className="text-red-400/40 italic text-[10px]">null</span>
-                        )}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-                {filteredData.length === 0 && hasFilters && (
-                  <tr>
-                    <td
-                      colSpan={columns.length + 1}
-                      className="px-4 py-6 text-center text-[11px]"
-                      style={{ color: "var(--text-faint)" }}
-                    >
-                      No rows match the current filters.{" "}
-                      <button
-                        onClick={() => setColumnFilters({})}
-                        className="underline"
-                        style={{ color: "var(--accent)" }}
-                      >
-                        Clear all
-                      </button>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          ) : (
-            <div className="flex items-center justify-center h-full text-xs" style={{ color: "var(--text-faint)" }}>
-              No data to display
-            </div>
-          )}
+        <div className="flex-1 overflow-hidden">
+          <DataTable
+            rows={displayRows}
+            total={currentTotalRows}
+            showToolbar
+          />
         </div>
       )}
 

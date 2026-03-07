@@ -6,16 +6,17 @@ import { VersionPanel } from "../versions/VersionPanel";
 import { ModelsPanel } from "../models/ModelsPanel";
 import { DatasetManager } from "../datasets/DatasetManager";
 import { DatabaseModal } from "../database/DatabaseModal";
+import { SettingsPanel } from "../settings/SettingsPanel";
 import { FileDropZone } from "./FileDropZone";
 import { useAppStore } from "../../stores/appStore";
 import {
   Hexagon, GitBranch, Cpu, Database, Layers,
   Plus, SplitSquareVertical, Pin, X,
-  Zap, ChevronLeft,
+  Zap, ChevronLeft, Settings,
 } from "lucide-react";
 import { addDataset as apiAddDataset } from "../../lib/api";
 
-type SidePanel = "versions" | "models" | "datasets" | "database";
+type SidePanel = "versions" | "models" | "datasets" | "database" | "settings";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Resize hook — supports direction + sign inversion
@@ -121,6 +122,7 @@ function PanelContent({ id }: { id: SidePanel }) {
   if (id === "versions") return <VersionPanel />;
   if (id === "models")   return <ModelsPanel />;
   if (id === "datasets") return <DatasetManager />;
+  if (id === "settings") return <SettingsPanel />;
   return null;
 }
 
@@ -129,6 +131,7 @@ const SIDE_ITEMS: { id: SidePanel; Icon: React.ElementType; label: string }[] = 
   { id: "datasets", Icon: Layers,      label: "Datasets" },
   { id: "models",   Icon: Cpu,         label: "Models"   },
   { id: "database", Icon: Database,    label: "Database" },
+  { id: "settings", Icon: Settings,    label: "Settings" },
 ];
 
 
@@ -583,7 +586,7 @@ export function AppLayout() {
         <div className="w-10 shrink-0 flex flex-col items-center py-2 gap-1 border-l"
              style={{ borderColor: "var(--border)", background: "var(--bg)" }}>
 
-          {SIDE_ITEMS.map(({ id, Icon, label }) => {
+          {SIDE_ITEMS.filter(i => i.id !== "settings").map(({ id, Icon, label }) => {
             const isActive  = activePanel === id;
             const isPinned  = pinnedPanels.includes(id);
 
@@ -602,19 +605,16 @@ export function AppLayout() {
                 onMouseLeave={e => { if (!isActive && !isPinned) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-faint)"; }}}
               >
                 <Icon className="w-4 h-4" />
-                {/* Pin dot */}
                 {isPinned && (
                   <div className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full"
                        style={{ background: "var(--accent)" }} />
                 )}
-                {/* Version count badge */}
                 {id === "versions" && versions.length > 0 && (
                   <div className="absolute -top-0.5 -right-0.5 text-[8px] font-bold rounded-full min-w-[14px] text-center leading-[14px] h-[14px] px-0.5"
                        style={{ background: "var(--gradient-accent)", color: "white" }}>
                     {versions.length}
                   </div>
                 )}
-                {/* Dataset count badge */}
                 {id === "datasets" && loadedDatasets.length > 0 && (
                   <div className="absolute -top-0.5 -right-0.5 text-[8px] font-bold rounded-full min-w-[14px] text-center leading-[14px] h-[14px] px-0.5"
                        style={{ background: "var(--gradient-accent)", color: "white" }}>
@@ -638,6 +638,29 @@ export function AppLayout() {
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
           )}
+
+          {/* Settings at the very bottom */}
+          <div className="w-full h-px mb-1 mt-1" style={{ background: "var(--border)" }} />
+          {(() => {
+            const id = "settings" as const;
+            const isActive = activePanel === id;
+            return (
+              <button
+                onClick={() => handleIconClick(id)}
+                title="Settings"
+                className="relative w-8 h-8 flex items-center justify-center rounded-lg transition-all duration-150"
+                style={{
+                  background: isActive ? "var(--accent-subtle)" : "transparent",
+                  color:      isActive ? "var(--accent)"         : "var(--text-faint)",
+                  border:     isActive ? "1px solid var(--accent-border)" : "1px solid transparent",
+                }}
+                onMouseEnter={e => { if (!isActive) { e.currentTarget.style.background = "var(--bg-sunken)"; e.currentTarget.style.color = "var(--text-muted)"; }}}
+                onMouseLeave={e => { if (!isActive) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--text-faint)"; }}}
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+            );
+          })()}
         </div>
       </div>
 
