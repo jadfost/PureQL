@@ -56,11 +56,88 @@ class AppState:
         self.connections: ConnectionStore = ConnectionStore()
         # Multi-dataset registry: name -> DataFrame
         self.datasets: dict = {}
+        # Profile cache: (name, shape) -> dict  (invalidated on mutation)
+        self._profile_cache: dict = {}
+        # Arrow cache: (name, shape) -> pyarrow.Table  (avoid repeated conversion)
+        self._arrow_cache: dict = {}
+        # Persistent DuckDB connection — datasets registered once, refreshed only on change
+        self._duckdb_con = None
+        self._duckdb_registered: dict = {}   # name -> shape at last registration
 
     def reset(self):
         self.df = None
         self.store = VersionStore()
         self.dataset_name = ""
+        self._profile_cache = {}
+        self._arrow_cache = {}
+        self._duckdb_registered = {}
+        if self._duckdb_con is not None:
+            try:
+                self._duckdb_con.close()
+            except Exception:
+                pass
+            self._duckdb_con = None
+
+    def get_profile(self, name: str, df: pl.DataFrame) -> dict:
+        """Return cached profile dict, recomputing only when shape changes."""
+        key = (name, df.shape)
+        if key not in self._profile_cache:
+            self._profile_cache[key] = profile(df).to_dict()
+        return self._profile_cache[key]
+
+    def get_duckdb(self):
+        """Return a persistent DuckDB connection with all datasets registered.
+
+        Only re-registers a dataset when its shape has changed after a mutation.
+        Caches Arrow conversion so .to_arrow() is called at most once per shape.
+        """
+        if _duckdb is None:
+            raise RuntimeError("DuckDB not installed. Run: pip install duckdb")
+
+        if self._duckdb_con is None:
+            self._duckdb_con = _duckdb.connect()
+
+        # Register / refresh datasets whose shape has changed
+        for ds_name, ds_df in self.datasets.items():
+            current_shape = ds_df.shape
+            if self._duckdb_registered.get(ds_name) != current_shape:
+                arrow_key = (ds_name, current_shape)
+                if arrow_key not in self._arrow_cache:
+                    self._arrow_cache[arrow_key] = ds_df.to_arrow()
+                arrow_tbl = self._arrow_cache[arrow_key]
+
+                safe_name = (ds_name
+                    .replace(".csv", "").replace(".parquet", "")
+                    .replace(".json", "").replace(".xlsx", "")
+                    .replace("-", "_").replace(" ", "_"))
+                for alias in [ds_name, safe_name]:
+                    try:
+                        self._duckdb_con.register(alias, arrow_tbl)
+                    except Exception:
+                        pass
+                self._duckdb_registered[ds_name] = current_shape
+
+        # Keep "data" pointing to the active df
+        if self.df is not None:
+            active_shape = self.df.shape
+            if self._duckdb_registered.get("__data__") != active_shape:
+                arrow_key = ("__data__", active_shape)
+                if arrow_key not in self._arrow_cache:
+                    self._arrow_cache[arrow_key] = self.df.to_arrow()
+                try:
+                    self._duckdb_con.register("data", self._arrow_cache[arrow_key])
+                except Exception:
+                    pass
+                self._duckdb_registered["__data__"] = active_shape
+
+        return self._duckdb_con
+
+    def invalidate_dataset(self, name: str):
+        """Call after mutating a dataset to force cache refresh on next access."""
+        self._duckdb_registered.pop(name, None)
+        self._duckdb_registered.pop("__data__", None)
+        for k in [k for k in self._profile_cache if k[0] == name]:
+            del self._profile_cache[k]
 
 
 state = AppState()
@@ -278,34 +355,43 @@ def execute_action(action_type: str, params: dict, target: str) -> dict:
             if not sql:
                 return {"success": False, "description": f"Could not build SQL for action '{action_type}'. Params: {params}"}
 
-            # ── Execute with DuckDB ──
-            if _duckdb is None:
-                return {"success": False, "description": "DuckDB not installed. Run: pip install duckdb"}
-
-            con = _duckdb.connect()
-            # Register all loaded datasets as DuckDB views
-            for ds_name, ds_df in state.datasets.items():
-                table_name = ds_name.replace(".csv", "").replace(".parquet", "").replace(".json", "").replace("-", "_").replace(" ", "_")
-                # Register both with and without extension as table names
-                con.register(table_name, ds_df.to_arrow())
-                con.register(ds_name, ds_df.to_arrow())
-            # Also register current df as "data" fallback
-            if state.df is not None and "data" not in state.datasets:
-                con.register("data", state.df.to_arrow())
-
+            # ── Execute with persistent DuckDB connection ──
             try:
-                result_arrow = con.execute(sql).arrow()
-                result_df = pl.from_arrow(result_arrow)
+                con = state.get_duckdb()
+            except RuntimeError as e:
+                return {"success": False, "description": str(e)}
+
+            result_df = None
+            last_sql_error = None
+
+            # Attempt 1: run the SQL as-is
+            try:
+                result_df = pl.from_arrow(con.execute(sql).arrow())
             except Exception as sql_err:
-                con.close()
-                return {"success": False, "description": f"Query error: {sql_err}\nSQL: {sql}"}
-            finally:
-                con.close()
+                last_sql_error = str(sql_err)
+
+            # Attempt 2: auto-repair common SQL errors
+            if result_df is None and last_sql_error:
+                repaired_sql = _auto_repair_sql(sql, last_sql_error, state.datasets)
+                if repaired_sql and repaired_sql != sql:
+                    try:
+                        result_df = pl.from_arrow(con.execute(repaired_sql).arrow())
+                        sql = repaired_sql   # use the repaired version going forward
+                        last_sql_error = None
+                    except Exception as e2:
+                        last_sql_error = str(e2)
+
+            if result_df is None:
+                return {"success": False, "description": f"Query error: {last_sql_error}\nSQL: {sql}"}
 
             # Store result as new active dataframe
             state.df = result_df
             state.dataset_name = state.dataset_name or "query_result"
-            prof2 = profile(state.df)
+            state.invalidate_dataset("__result__")
+
+            # Use cached profile — result datasets are keyed by shape
+            prof2_dict = state.get_profile("__result__", state.df)
+            quality_score2 = prof2_dict.get("qualityScore", 80)
 
             row_count = len(result_df)
             col_count = len(result_df.columns)
@@ -315,7 +401,7 @@ def execute_action(action_type: str, params: dict, target: str) -> dict:
                 df=state.df,
                 operation="query",
                 description=description,
-                quality_score=prof2.quality_score,
+                quality_score=quality_score2,
                 rows_affected=row_count,
                 sql=sql,
                 datasets_used=list(state.datasets.keys()),
@@ -324,7 +410,7 @@ def execute_action(action_type: str, params: dict, target: str) -> dict:
             return {
                 "success": True,
                 "description": description,
-                "quality_score": prof2.quality_score,
+                "quality_score": quality_score2,
                 "rows_affected": row_count,
                 "sql": sql,
                 "version": {"id": version.id, "label": version.label},
@@ -335,21 +421,27 @@ def execute_action(action_type: str, params: dict, target: str) -> dict:
 
         # Apply the result
         state.df = result.df
-        prof = profile(state.df)
+        state.invalidate_dataset(state.dataset_name)
+        if state.dataset_name in state.datasets:
+            state.datasets[state.dataset_name] = state.df
+
+        # Use cached profile (shape changed, so this will recompute once)
+        prof_dict = state.get_profile(state.dataset_name, state.df)
+        quality_score = prof_dict.get("qualityScore", 80)
 
         # Commit version
         version = state.store.commit(
             df=state.df,
             operation=action_type,
             description=result.description,
-            quality_score=prof.quality_score,
+            quality_score=quality_score,
             rows_affected=result.rows_affected,
         )
 
         return {
             "success": True,
             "description": result.description,
-            "quality_score": prof.quality_score,
+            "quality_score": quality_score,
             "rows_affected": result.rows_affected,
             "version": {"id": version.id, "label": version.label},
         }
@@ -682,32 +774,44 @@ class PureQLHandler(BaseHTTPRequestHandler):
             datasets_for_context[state.dataset_name] = state.df
 
         for ds_name, ds_df in datasets_for_context.items():
-            prof = profile(ds_df)
-            prof_dict = prof.to_dict()
-            ds_context = build_context(
-                columns=prof_dict["columns"],
-                row_count=prof_dict["rowCount"],
-                quality_score=prof_dict["qualityScore"],
-                issues=prof_dict["issues"],
+            # Use cached profile — avoids re-profiling on every message
+            prof_dict = state.get_profile(ds_name, ds_df)
+
+            # Build rich column info with REAL polars dtypes and sample values
+            col_lines = []
+            sample_rows = ds_df.head(3).to_dicts()
+            for col_meta in prof_dict["columns"]:
+                col_name = col_meta["name"]
+                # Get actual Polars dtype (not the profiler's abstracted type)
+                try:
+                    real_dtype = str(ds_df[col_name].dtype)
+                except Exception:
+                    real_dtype = col_meta.get("type", "Unknown")
+                null_info = f" [{col_meta['nullCount']} nulls]" if col_meta.get("nullCount", 0) > 0 else ""
+                samples = [str(r[col_name]) for r in sample_rows if col_name in r][:3]
+                sample_str = f" samples={samples}" if samples else ""
+                col_lines.append(f"  {col_name} ({real_dtype}){null_info}{sample_str}")
+
+            ds_context = (
+                f"DATASET '{ds_name}': {ds_df.height:,} rows × {ds_df.width} cols\n"
+                f"COLUMNS:\n" + "\n".join(col_lines)
             )
-            context_parts.append(f"DATASET '{ds_name}':\n{ds_context}")
+            context_parts.append(ds_context)
 
         context = "\n\n".join(context_parts)
 
-        # If multiple datasets, add join hint
-        if len(datasets_for_context) > 1:
-            names = list(datasets_for_context.keys())
-            safe_names = [n.replace(".csv","").replace(".parquet","").replace("-","_").replace(" ","_") for n in names]
-            context += f"\n\nAVAILABLE TABLES FOR SQL QUERIES:"
-            for orig, safe in zip(names, safe_names):
-                ds_df = datasets_for_context[orig]
-                context += f"\n  - \"{orig}\" (also usable as: {safe}) — {len(ds_df)} rows, cols: {', '.join(ds_df.columns)}"
-            context += f"\n\nFor JOIN queries use exact filenames in quotes, e.g.: FROM \"{names[0]}\" JOIN \"{names[1]}\" ON ..."
-        elif len(datasets_for_context) == 1:
-            name = list(datasets_for_context.keys())[0]
-            safe = name.replace(".csv","").replace(".parquet","").replace("-","_").replace(" ","_")
-            df_ctx = list(datasets_for_context.values())[0]
-            context += f"\n\nTABLE NAME FOR SQL: \"{name}\" (or: {safe}) — {len(df_ctx)} rows"
+        # Table name hints for SQL
+        names = list(datasets_for_context.keys())
+        if len(names) > 1:
+            context += "\n\nSQL TABLE NAMES (use exact filename in quotes):"
+            for n in names:
+                df_n = datasets_for_context[n]
+                context += f'\n  "{n}" — {df_n.height:,} rows, cols: {", ".join(df_n.columns)}'
+            context += f'\nEXAMPLE JOIN: SELECT * FROM "{names[0]}" a JOIN "{names[1]}" b ON a.col = b.col'
+        elif len(names) == 1:
+            n = names[0]
+            safe = n.replace(".csv","").replace(".parquet","").replace("-","_").replace(" ","_")
+            context += f'\n\nSQL TABLE NAME: "{n}" (or: {safe})'
 
         prompt_parts = []
         if context:
@@ -801,38 +905,61 @@ class PureQLHandler(BaseHTTPRequestHandler):
             raw_response = "".join(full_text)
             interpreted = _parse_response(raw_response)
 
-            # ── Retry if AI returned plain text instead of JSON ──────────────
-            # Local models (e.g. qwen2.5:7b) sometimes ignore the JSON-only rule
-            # and return a descriptive paragraph. When that happens, we make one
-            # more forced call with an ultra-strict prompt so we can actually run
-            # the action.
-            if interpreted.error in ("no_json_found", "json_parse_error") and state.ai_provider == "ollama":
-                send_event({"type": "token", "text": "\n⟳ Reformatting response to JSON…\n"})
-                force_prompt = (
-                    f"The user wants to do this with their data:\n\n"
-                    f"\"{message}\"\n\n"
-                    f"The AI already described the plan:\n\"{interpreted.explanation[:400]}\"\n\n"
-                    f"{context}\n\n"
-                    f"NOW output ONLY a valid JSON object — no markdown, no explanation, no backticks.\n"
-                    f"Use exactly this structure:\n"
-                    f'{{"actions":[{{"type":"query","params":{{"sql":"<DuckDB SQL here>","description":"<short description>"}},"target":"all"}}],"explanation":"<same language as user>","confidence":0.9}}\n\n'
-                    f"CRITICAL: The SQL must reference the exact dataset filenames as table names.\n"
-                    f"Available tables: {list(datasets_for_context.keys())}\n"
-                    f"Example for two tables: SELECT f.name as nombre_mujer, m.name as nombre_hombre FROM \"female_names.csv\" f JOIN \"male_names.csv\" m ON ...\n"
-                    f"Output ONLY the JSON object, nothing else:"
+            # ── Smart recovery when AI returns prose instead of JSON ─────────
+            # 1. Try to extract SQL directly from the text (SELECT ... patterns)
+            # 2. Only fall back to a second LLM call if extraction also fails
+            if interpreted.error in ("no_json_found", "json_parse_error"):
+                import re as _re
+                sql_match = _re.search(
+                    r"(SELECT\s.+?)(?:;|\Z)",
+                    raw_response,
+                    _re.IGNORECASE | _re.DOTALL,
                 )
-                retry_text = []
-                try:
-                    for chunk in generate_stream(
-                        prompt=force_prompt,
-                        model=state.ai_model,
-                        system="You output ONLY valid JSON. No markdown. No explanation. No backticks. Just the JSON object.",
-                        temperature=0.0,
-                    ):
-                        retry_text.append(chunk)
-                    interpreted = _parse_response("".join(retry_text))
-                except Exception:
-                    pass  # Keep the original interpreted (explanation-only) on retry failure
+                if sql_match:
+                    # Found SQL in the prose — wrap it as a query action
+                    extracted_sql = sql_match.group(1).strip()
+                    from pureql.ai.interpreter import Action, InterpretedCommand
+                    interpreted = InterpretedCommand(
+                        actions=[Action(
+                            type="query",
+                            params={"sql": extracted_sql, "description": "Extracted from AI response"},
+                            target="all",
+                        )],
+                        explanation=raw_response[:300].strip(),
+                        confidence=0.7,
+                        raw_response=raw_response,
+                    )
+                    send_event({"type": "token", "text": "\n✓ SQL extracted from response\n"})
+                elif state.ai_provider == "ollama":
+                    # Last resort: targeted JSON-only retry with strict temperature=0
+                    send_event({"type": "token", "text": "\n⟳ Requesting structured response…\n"})
+                    table_list = ", ".join(f'"{n}"' for n in datasets_for_context.keys())
+                    force_prompt = (
+                        f'User request: "{message}"\n'
+                        f"Available tables: {table_list}\n"
+                        f"Column types per table:\n"
+                    )
+                    for n, df_n in datasets_for_context.items():
+                        force_prompt += f'  "{n}": ' + ", ".join(f"{c}({df_n[c].dtype})" for c in df_n.columns) + "\n"
+                    force_prompt += (
+                        "\nOutput ONLY this JSON (no other text):\n"
+                        '{"actions":[{"type":"query","params":{"sql":"<SQL here>","description":"<description>"},"target":"all"}],'
+                        '"explanation":"<in user language>","confidence":0.9}'
+                    )
+                    retry_text = []
+                    try:
+                        for chunk in generate_stream(
+                            prompt=force_prompt,
+                            model=state.ai_model,
+                            system="Output ONLY valid JSON. No markdown. No explanation.",
+                            temperature=0.0,
+                        ):
+                            retry_text.append(chunk)
+                        retry_interpreted = _parse_response("".join(retry_text))
+                        if not retry_interpreted.error:
+                            interpreted = retry_interpreted
+                    except Exception:
+                        pass  # Keep original
 
             # Execute actions
             results = []
@@ -1571,6 +1698,47 @@ class PureQLHandler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         """Suppress default logging, print to stderr for Tauri to capture."""
         print(f"[PureQL] {args[0]}", file=sys.stderr)
+
+
+def _auto_repair_sql(sql: str, error: str, datasets: dict) -> Optional[str]:
+    """Try to automatically fix common SQL errors.
+
+    Returns a repaired SQL string, or None if no repair was possible.
+    """
+    import re
+
+    error_lower = error.lower()
+
+    # 1. Unquoted table name — DuckDB can't find it
+    # e.g. "Table female_names not found" → wrap in quotes
+    if "table" in error_lower and ("not found" in error_lower or "does not exist" in error_lower):
+        for ds_name in datasets.keys():
+            # Try the safe (no-extension) name
+            safe = (ds_name.replace(".csv","").replace(".parquet","")
+                    .replace(".json","").replace(".xlsx","")
+                    .replace("-","_").replace(" ","_"))
+            # If safe name is used without quotes in SQL, try the quoted filename
+            if re.search(rf'\b{re.escape(safe)}\b', sql) and f'"{ds_name}"' not in sql:
+                repaired = re.sub(rf'\b{re.escape(safe)}\b', f'"{ds_name}"', sql)
+                return repaired
+
+    # 2. Column not found — try case-insensitive match
+    col_match = re.search(r'column "([^"]+)" does not exist|Referenced column "([^"]+)" not found', error, re.IGNORECASE)
+    if col_match:
+        bad_col = col_match.group(1) or col_match.group(2)
+        # Look for a close match in any loaded dataset
+        for ds_df in datasets.values():
+            for actual_col in ds_df.columns:
+                if actual_col.lower() == bad_col.lower() and actual_col != bad_col:
+                    return sql.replace(f'"{bad_col}"', f'"{actual_col}"').replace(bad_col, f'"{actual_col}"')
+
+    # 3. CAST issues — if CAST fails, strip the CAST and try raw column
+    if "cast" in error_lower and "conversion" in error_lower:
+        repaired = re.sub(r'CAST\s*\(\s*("?\w+"?)\s+AS\s+\w+\s*\)', r'\1', sql, flags=re.IGNORECASE)
+        if repaired != sql:
+            return repaired
+
+    return None
 
 
 def _get_preview(df: Optional[pl.DataFrame], n: int = 100) -> list[dict]:

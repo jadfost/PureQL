@@ -27,8 +27,10 @@ class Version:
     parent_id: Optional[str] = None
     operation: str = ""
     rows_affected: int = 0
-    sql: Optional[str] = None          # SQL query that produced this version
-    datasets_used: list = field(default_factory=list)  # dataset names used
+    sql: Optional[str] = None
+    datasets_used: list = field(default_factory=list)
+    row_count: int = 0        # actual row count of the result dataframe
+    col_count: int = 0        # actual column count
 
 
 @dataclass
@@ -43,15 +45,6 @@ class VersionStore:
     _snapshots: dict[str, pl.DataFrame] = field(default_factory=dict, repr=False)
 
     def create_initial(self, df: pl.DataFrame, quality_score: int = 0) -> Version:
-        """Create the initial version (v1) from a raw dataset.
-
-        Args:
-            df: The original DataFrame.
-            quality_score: Initial quality score from profiling.
-
-        Returns:
-            The created Version.
-        """
         version = Version(
             id=_new_id(),
             label="v1 Original",
@@ -61,12 +54,12 @@ class VersionStore:
             parent_id=None,
             operation="load",
             rows_affected=df.height,
+            row_count=df.height,
+            col_count=df.width,
         )
-
         self._snapshots[version.id] = df
         self.versions.append(version)
         self.current_id = version.id
-
         return version
 
     def commit(
@@ -79,20 +72,7 @@ class VersionStore:
         sql: Optional[str] = None,
         datasets_used: Optional[list] = None,
     ) -> Version:
-        """Create a new version from the current state.
-
-        Args:
-            df: The new DataFrame state after an operation.
-            operation: Name of the operation (e.g., "deduplicate").
-            description: Human-readable description of changes.
-            quality_score: Quality score after this operation.
-            rows_affected: Number of rows changed.
-
-        Returns:
-            The created Version.
-        """
         version_number = len(self.versions) + 1
-
         version = Version(
             id=_new_id(),
             label=f"v{version_number} {operation.replace('_', ' ').title()}",
@@ -104,12 +84,12 @@ class VersionStore:
             rows_affected=rows_affected,
             sql=sql,
             datasets_used=datasets_used or [],
+            row_count=df.height,
+            col_count=df.width,
         )
-
         self._snapshots[version.id] = df
         self.versions.append(version)
         self.current_id = version.id
-
         return version
 
     def get_current(self) -> Optional[pl.DataFrame]:
@@ -229,6 +209,8 @@ class VersionStore:
                 "qualityScore": v.quality_score,
                 "operation": v.operation,
                 "rowsAffected": v.rows_affected,
+                "rowCount": v.row_count,
+                "colCount": v.col_count,
                 "parentId": v.parent_id,
                 "sql": v.sql,
                 "datasetsUsed": v.datasets_used,
