@@ -268,10 +268,12 @@ export function ChatPanel() {
             <button
               onClick={() => setShowDatasetPicker((v) => !v)}
               title="Select datasets for this prompt"
-              className={`px-2 py-2 rounded-md border text-xs transition flex items-center gap-1 shrink-0 ${
+              className="px-2 py-2 rounded-md border text-xs transition flex items-center gap-1 shrink-0"
+              style={
                 showDatasetPicker || selectedDatasets.length > 0
-                  ? "" : ""
-              }`}
+                  ? { background: "var(--accent-subtle)", borderColor: "var(--accent-border)", color: "var(--accent)" }
+                  : { background: "transparent", borderColor: "var(--border)", color: "var(--text-faint)" }
+              }
             >
               <Layers className="w-3 h-3" />
               {selectedDatasets.length > 0 && (

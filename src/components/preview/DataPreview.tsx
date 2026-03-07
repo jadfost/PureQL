@@ -173,7 +173,7 @@ export function DataPreview() {
   const {
     previewData, profile, activePanel, setActivePanel,
     currentSQL, setCurrentSQL, datasetName, setPreviewData,
-    isLoading, setLoading,
+    isLoading, setLoading, versions, currentVersionId,
   } = useAppStore();
 
   const [showExport, setShowExport]         = useState(false);
@@ -182,6 +182,7 @@ export function DataPreview() {
   const [sqlRunning, setSqlRunning] = useState(false);
   const [sqlError, setSqlError] = useState<string | null>(null);
   const [sqlRows, setSqlRows] = useState<Record<string, unknown>[] | null>(null);
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
 
   const panels = [
     { id: "data" as const, label: "Data" },
@@ -191,6 +192,22 @@ export function DataPreview() {
   ];
 
   const columns = previewData.length > 0 ? Object.keys(previewData[0]) : [];
+
+  // Use active version's rowCount if available, otherwise profile total
+  const activeVersion = versions.find((v) => v.id === currentVersionId);
+  const currentTotalRows = activeVersion?.rowCount ?? profile?.rowCount ?? 0;
+
+  // Client-side column filtering over the preview slice
+  const activeFilters = Object.entries(columnFilters).filter(([, v]) => v.trim() !== "");
+  const filteredData = activeFilters.length === 0
+    ? (sqlRows ?? previewData)
+    : (sqlRows ?? previewData).filter((row) =>
+        activeFilters.every(([col, val]) =>
+          String(row[col] ?? "").toLowerCase().includes(val.toLowerCase())
+        )
+      );
+
+  const hasFilters = activeFilters.length > 0;
 
   const handleRunSQL = async () => {
     if (!sqlInput.trim()) return;
@@ -250,8 +267,19 @@ export function DataPreview() {
         <div className="ml-auto flex items-center gap-1.5">
           {profile && (
             <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>
-              {(sqlRows ?? previewData).length} / {profile.rowCount.toLocaleString()} rows
+              {hasFilters
+                ? `${filteredData.length} filtered`
+                : `${Math.min(filteredData.length, 100)} / ${currentTotalRows.toLocaleString()} rows`}
             </span>
+          )}
+          {hasFilters && (
+            <button
+              onClick={() => setColumnFilters({})}
+              className="text-[10px] px-2 py-0.5 rounded-lg border transition-all flex items-center gap-1"
+              style={{ borderColor: "var(--accent-border)", color: "var(--accent)", background: "var(--accent-subtle)" }}
+            >
+              <X className="w-2.5 h-2.5" /> Clear filters
+            </button>
           )}
           {datasetName && (
             <button
@@ -299,9 +327,31 @@ export function DataPreview() {
                     </th>
                   ))}
                 </tr>
+                {/* Filter row */}
+                <tr style={{ background: "var(--bg)" }}>
+                  <td className="px-1 py-1 border-b" style={{ borderColor: "var(--border)" }} />
+                  {columns.map((col) => (
+                    <td key={col} className="px-1 py-1 border-b" style={{ borderColor: "var(--border)" }}>
+                      <input
+                        type="text"
+                        value={columnFilters[col] ?? ""}
+                        onChange={(e) =>
+                          setColumnFilters((prev) => ({ ...prev, [col]: e.target.value }))
+                        }
+                        placeholder="filter…"
+                        className="w-full rounded px-1.5 py-0.5 text-[10px] focus:outline-none"
+                        style={{
+                          background: columnFilters[col] ? "var(--accent-subtle)" : "var(--bg-sunken)",
+                          border: `1px solid ${columnFilters[col] ? "var(--accent-border)" : "var(--border)"}`,
+                          color: "var(--text-secondary)",
+                        }}
+                      />
+                    </td>
+                  ))}
+                </tr>
               </thead>
               <tbody>
-                {previewData.map((row, i) => (
+                {filteredData.map((row, i) => (
                   <tr
                     key={i}
                     className={`${i % 2 === 0 ? "" : "bg-pureql-panel/20"} hover:bg-pureql-card/50`}
@@ -324,6 +374,20 @@ export function DataPreview() {
                     ))}
                   </tr>
                 ))}
+                {filteredData.length === 0 && hasFilters && (
+                  <tr>
+                    <td colSpan={columns.length + 1} className="px-4 py-6 text-center text-[11px]" style={{ color: "var(--text-faint)" }}>
+                      No rows match the current filters.
+                      <button
+                        onClick={() => setColumnFilters({})}
+                        className="ml-2 text-[10px] underline"
+                        style={{ color: "var(--accent)" }}
+                      >
+                        Clear filters
+                      </button>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           ) : (

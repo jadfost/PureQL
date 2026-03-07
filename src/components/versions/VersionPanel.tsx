@@ -324,9 +324,11 @@ export function VersionPanel() {
         {/* Compare mode toggle */}
         <button
           onClick={() => { setCompareMode((v) => !v); setCompareSelection([]); }}
-          className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition border ${
-            compareMode ? "" : ""
-          }`}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-[11px] font-medium transition border"
+          style={compareMode
+            ? { background: "var(--accent-subtle)", borderColor: "var(--accent-border)", color: "var(--accent)" }
+            : { background: "transparent", borderColor: "var(--border)", color: "var(--text-faint)" }
+          }
         >
           <GitCompare className="w-3.5 h-3.5" />Compare
         </button>
