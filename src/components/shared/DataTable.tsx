@@ -107,25 +107,36 @@ export function ColumnHeaderMenu({ col, filter, sort, onFilter, onSort, compact 
     setOpen(true);
   }, []);
 
-  // Close on outside click
+  // Close on outside click — deferred so the opening click doesn't immediately close it
   useEffect(() => {
     if (!open) return;
+    // Use a ref timestamp to ignore clicks that happened before the menu opened
+    const openedAt = Date.now();
     const handle = (e: MouseEvent) => {
-      const menu = document.getElementById(`col-menu-${col}`);
+      // Ignore events from within the first 100ms (the opening click)
+      if (Date.now() - openedAt < 100) return;
+      const menu = document.getElementById(`col-menu-${col.replace(/[^a-zA-Z0-9]/g, "_")}`);
       if (menu && menu.contains(e.target as Node)) return;
       if (btnRef.current?.contains(e.target as Node)) return;
       setOpen(false);
     };
-    document.addEventListener("mousedown", handle);
-    return () => document.removeEventListener("mousedown", handle);
+    // Small delay so the opening click event doesn't trigger immediate close
+    const timer = window.setTimeout(() => {
+      document.addEventListener("mousedown", handle);
+    }, 10);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("mousedown", handle);
+    };
   }, [open, col]);
 
-  // Close on scroll
+  // Close on scroll (but not the table scroll itself - only viewport scroll)
   useEffect(() => {
     if (!open) return;
     const handle = () => setOpen(false);
-    window.addEventListener("scroll", handle, true);
-    return () => window.removeEventListener("scroll", handle, true);
+    // Only close on window-level scroll, not scrolling inside the table
+    window.addEventListener("scroll", handle, { passive: true });
+    return () => window.removeEventListener("scroll", handle);
   }, [open]);
 
   const opMeta  = OPS.find((o) => o.id === op);
@@ -156,7 +167,13 @@ export function ColumnHeaderMenu({ col, filter, sort, onFilter, onSort, compact 
     <>
       <button
         ref={btnRef}
-        onClick={() => open ? setOpen(false) : openMenu()}
+        onClick={() => {
+          if (open) {
+            setOpen(false);
+          } else {
+            openMenu();
+          }
+        }}
         className={`flex items-center gap-1 w-full text-left group/hdr ${fs} font-semibold`}
         style={{ color: "var(--text-muted)" }}
       >
@@ -183,7 +200,7 @@ export function ColumnHeaderMenu({ col, filter, sort, onFilter, onSort, compact 
       {/* Portal-style fixed dropdown */}
       {open && pos && (
         <div
-          id={`col-menu-${col}`}
+          id={`col-menu-${col.replace(/[^a-zA-Z0-9]/g, "_")}`}
           style={{
             position: "fixed",
             top:      pos.top,

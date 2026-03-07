@@ -158,15 +158,16 @@ function Toggle({ value, onChange }: { value: boolean; onChange: (v: boolean) =>
 
 /* ── Ollama status widget ──────────────────────────────────────────────── */
 function OllamaStatus() {
-  const [status, setStatus] = useState<{ installed: boolean; running: boolean } | null>(null);
+  const { activeModelInfo } = useAppStore();
+  const [status, setStatus] = useState<{ installed: boolean; running: boolean; models: { name: string }[] } | null>(null);
   const [starting, setStarting] = useState(false);
 
   const refresh = async () => {
     try {
       const s = await getOllamaStatus();
-      setStatus(s);
+      setStatus(s as typeof status);
     } catch {
-      setStatus({ installed: false, running: false });
+      setStatus({ installed: false, running: false, models: [] });
     }
   };
 
@@ -191,34 +192,100 @@ function OllamaStatus() {
     );
   }
 
+  const installedNames = (status.models ?? []).map((m: { name: string }) => m.name);
+  const activeModel = activeModelInfo?.modelId ?? "";
+  const modelInstalled = !activeModel || installedNames.some(
+    (n) => n === activeModel || n.startsWith(activeModel.split(":")[0] + ":")
+  );
+
   return (
-    <div className="flex items-center gap-2 px-3 py-2 rounded-lg border" style={{
-      background: status.running ? "#f0fdf4" : "#fff7ed",
-      borderColor: status.running ? "#86efac" : "#fed7aa",
-    }}>
-      <div className="w-2 h-2 rounded-full shrink-0" style={{
-        background: status.running ? "#22c55e" : status.installed ? "#f97316" : "#ef4444",
-      }} />
-      <span className="text-[10px] font-medium flex-1" style={{
-        color: status.running ? "#15803d" : "#9a3412",
+    <div className="space-y-2">
+      <div className="flex items-center gap-2 px-3 py-2 rounded-lg border" style={{
+        background: status.running ? "#f0fdf4" : "#fff7ed",
+        borderColor: status.running ? "#86efac" : "#fed7aa",
       }}>
-        {status.running ? "Ollama running" : status.installed ? "Ollama installed but not running" : "Ollama not installed"}
-      </span>
-      <button onClick={refresh} className="p-0.5" style={{ color: "#94a3b8" }}>
-        <RefreshCw className="w-3 h-3" />
-      </button>
-      {status.installed && !status.running && (
-        <button
-          onClick={handleStart}
-          disabled={starting}
-          className="flex items-center gap-1 text-[9px] px-2 py-1 rounded-md font-semibold transition"
-          style={{ background: "#0ea5e9", color: "#ffffff", border: "none", cursor: "pointer" }}
-        >
-          {starting
-            ? <div className="w-2.5 h-2.5 rounded-full animate-spin" style={{ border: "1.5px solid #fff", borderTopColor: "transparent" }} />
-            : <Play className="w-2.5 h-2.5" />}
-          Start
+        <div className="w-2 h-2 rounded-full shrink-0" style={{
+          background: status.running ? "#22c55e" : status.installed ? "#f97316" : "#ef4444",
+        }} />
+        <span className="text-[10px] font-medium flex-1" style={{
+          color: status.running ? "#15803d" : "#9a3412",
+        }}>
+          {status.running ? "Ollama running" : status.installed ? "Ollama installed but not running" : "Ollama not installed"}
+        </span>
+        <button onClick={refresh} className="p-0.5" style={{ color: "#94a3b8" }}>
+          <RefreshCw className="w-3 h-3" />
         </button>
+        {status.installed && !status.running && (
+          <button
+            onClick={handleStart}
+            disabled={starting}
+            className="flex items-center gap-1 text-[9px] px-2 py-1 rounded-md font-semibold transition"
+            style={{ background: "#0ea5e9", color: "#ffffff", border: "none", cursor: "pointer" }}
+          >
+            {starting
+              ? <div className="w-2.5 h-2.5 rounded-full animate-spin" style={{ border: "1.5px solid #fff", borderTopColor: "transparent" }} />
+              : <Play className="w-2.5 h-2.5" />}
+            Start
+          </button>
+        )}
+      </div>
+
+      {/* Installed models list */}
+      {status.running && installedNames.length > 0 && (
+        <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, padding: "8px 10px" }}>
+          <div style={{ fontSize: 9, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>
+            Installed models
+          </div>
+          <div className="flex flex-col gap-1">
+            {installedNames.map((name) => {
+              const isActive = name === activeModel || name.startsWith(activeModel.split(":")[0] + ":");
+              return (
+                <div key={name} className="flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: isActive ? "#22c55e" : "#cbd5e1" }} />
+                  <span style={{ fontSize: 10, fontFamily: "monospace", color: isActive ? "#15803d" : "#64748b" }}>{name}</span>
+                  {isActive && <span style={{ fontSize: 9, color: "#0ea5e9", fontWeight: 700 }}>● active</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Warning: active model not installed */}
+      {status.running && activeModel && !modelInstalled && (
+        <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg" style={{ background: "#fff7ed", border: "1px solid #fed7aa" }}>
+          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: "#f97316" }} />
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#9a3412" }}>
+              Model not installed
+            </div>
+            <div style={{ fontSize: 10, color: "#c2410c", marginTop: 2 }}>
+              Run in terminal:
+            </div>
+            <code style={{
+              display: "block", marginTop: 4, padding: "4px 8px", borderRadius: 6,
+              background: "#1e293b", color: "#7dd3fc", fontSize: 10, fontFamily: "monospace",
+            }}>
+              ollama pull {activeModel}
+            </code>
+          </div>
+        </div>
+      )}
+
+      {/* No models installed at all */}
+      {status.running && installedNames.length === 0 && (
+        <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg" style={{ background: "#fff7ed", border: "1px solid #fed7aa" }}>
+          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" style={{ color: "#f97316" }} />
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#9a3412" }}>No models installed</div>
+            <code style={{
+              display: "block", marginTop: 4, padding: "4px 8px", borderRadius: 6,
+              background: "#1e293b", color: "#7dd3fc", fontSize: 10, fontFamily: "monospace",
+            }}>
+              ollama pull qwen2.5:7b
+            </code>
+          </div>
+        </div>
       )}
     </div>
   );

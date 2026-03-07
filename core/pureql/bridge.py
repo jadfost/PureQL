@@ -610,6 +610,23 @@ class PureQLHandler(BaseHTTPRequestHandler):
                         send_event({"type": "error", "message": "Ollama is not running. Please start it with 'ollama serve' and try again."})
                         return
                     full_text = []
+                # Verify model is installed — give a clear action if not
+                installed = get_installed_models()
+                installed_names = [m.get("name", "") for m in installed]
+                model_found = any(
+                    state.ai_model == n or state.ai_model.split(":")[0] == n.split(":")[0]
+                    for n in installed_names
+                )
+                if not model_found and installed_names:
+                    send_event({
+                        "type": "error",
+                        "message": (
+                            f"Model '{state.ai_model}' is not installed. "
+                            f"Run: ollama pull {state.ai_model}\n"
+                            f"Installed models: {', '.join(installed_names)}"
+                        )
+                    })
+                    return
                 last_err = None
                 for attempt in range(2):
                     try:

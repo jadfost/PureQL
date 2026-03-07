@@ -9,7 +9,7 @@ import shutil
 from dataclasses import dataclass
 from typing import AsyncIterator, Optional
 from urllib.request import urlopen, Request
-from urllib.error import URLError
+from urllib.error import URLError, HTTPError
 
 
 OLLAMA_BASE_URL = "http://127.0.0.1:11434"
@@ -348,6 +348,14 @@ def generate(
         with urlopen(req, timeout=300) as resp:
             data = json.loads(resp.read().decode())
             return data.get("response", "")
+    except HTTPError as e:
+        if e.code == 404:
+            raise ConnectionError(
+                f"Model '{model}' not found in Ollama. "
+                f"Run: ollama pull {model}"
+            )
+        body = e.read().decode(errors="replace")
+        raise ConnectionError(f"Ollama error {e.code}: {body[:200]}")
     except (URLError, OSError, TimeoutError) as e:
         raise ConnectionError(f"Failed to connect to Ollama: {e}")
 
@@ -395,5 +403,13 @@ def generate_stream(
                         break
                 except json.JSONDecodeError:
                     continue
+    except HTTPError as e:
+        if e.code == 404:
+            raise ConnectionError(
+                f"Model '{model}' not found in Ollama. "
+                f"Run: ollama pull {model}"
+            )
+        body = e.read().decode(errors="replace")
+        raise ConnectionError(f"Ollama error {e.code}: {body[:200]}")
     except (URLError, OSError, TimeoutError) as e:
         raise ConnectionError(f"Failed to connect to Ollama: {e}")
