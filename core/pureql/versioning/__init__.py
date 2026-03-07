@@ -27,6 +27,8 @@ class Version:
     parent_id: Optional[str] = None
     operation: str = ""
     rows_affected: int = 0
+    sql: Optional[str] = None          # SQL query that produced this version
+    datasets_used: list = field(default_factory=list)  # dataset names used
 
 
 @dataclass
@@ -74,6 +76,8 @@ class VersionStore:
         description: str,
         quality_score: int,
         rows_affected: int = 0,
+        sql: Optional[str] = None,
+        datasets_used: Optional[list] = None,
     ) -> Version:
         """Create a new version from the current state.
 
@@ -98,6 +102,8 @@ class VersionStore:
             parent_id=self.current_id,
             operation=operation,
             rows_affected=rows_affected,
+            sql=sql,
+            datasets_used=datasets_used or [],
         )
 
         self._snapshots[version.id] = df
@@ -224,6 +230,8 @@ class VersionStore:
                 "operation": v.operation,
                 "rowsAffected": v.rows_affected,
                 "parentId": v.parent_id,
+                "sql": v.sql,
+                "datasetsUsed": v.datasets_used,
             }
             for v in self.versions
         ]

@@ -50,6 +50,8 @@ class AppState:
         self.ai_provider: str = "ollama"
         self.ai_api_key: Optional[str] = None
         self.connections: ConnectionStore = ConnectionStore()
+        # Multi-dataset registry: name -> DataFrame
+        self.datasets: dict = {}
 
     def reset(self):
         self.df = None
@@ -355,6 +357,16 @@ class PureQLHandler(BaseHTTPRequestHandler):
                 self._handle_db_write(data)
             elif path == "/db/connections":
                 self._handle_db_connections()
+            elif path == "/datasets/list":
+                self._handle_datasets_list()
+            elif path == "/datasets/add":
+                self._handle_datasets_add(data)
+            elif path == "/datasets/preview":
+                self._handle_datasets_preview(data)
+            elif path == "/datasets/remove":
+                self._handle_datasets_remove(data)
+            elif path == "/versions/compare":
+                self._handle_versions_compare(data)
             elif path == "/diff":
                 self._handle_diff(data)
             elif path == "/apikey/save":
@@ -423,6 +435,7 @@ class PureQLHandler(BaseHTTPRequestHandler):
             state.reset()
             state.df = load(tmp_path)
             state.dataset_name = filename
+            state.datasets[filename] = state.df  # register in multi-dataset registry
             prof = profile(state.df)
             state.store.create_initial(state.df, quality_score=prof.quality_score)
             self._respond(200, {
@@ -449,6 +462,7 @@ class PureQLHandler(BaseHTTPRequestHandler):
         state.reset()
         state.df = load(file_path)
         state.dataset_name = Path(file_path).name
+        state.datasets[state.dataset_name] = state.df  # register in multi-dataset registry
 
         prof = profile(state.df)
         state.store.create_initial(state.df, quality_score=prof.quality_score)
@@ -527,21 +541,43 @@ class PureQLHandler(BaseHTTPRequestHandler):
         from pureql.ai.cloud_providers import generate_cloud
 
         message = data.get("message", "")
+        selected_datasets = data.get("datasets", [])  # list of dataset names for this query
         if not message:
             self._respond(400, {"error": "Missing 'message'"})
             return
 
-        # Build context
-        context = ""
-        if state.df is not None:
-            prof = profile(state.df)
+        # Build context — support multi-dataset
+        context_parts = []
+
+        # If specific datasets selected, use those
+        datasets_for_context = {}
+        if selected_datasets:
+            for name in selected_datasets:
+                if name in state.datasets:
+                    datasets_for_context[name] = state.datasets[name]
+                elif name == state.dataset_name and state.df is not None:
+                    datasets_for_context[name] = state.df
+        elif state.df is not None:
+            datasets_for_context[state.dataset_name] = state.df
+
+        for ds_name, ds_df in datasets_for_context.items():
+            prof = profile(ds_df)
             prof_dict = prof.to_dict()
-            context = build_context(
+            ds_context = build_context(
                 columns=prof_dict["columns"],
                 row_count=prof_dict["rowCount"],
                 quality_score=prof_dict["qualityScore"],
                 issues=prof_dict["issues"],
             )
+            context_parts.append(f"DATASET '{ds_name}':\n{ds_context}")
+
+        context = "\n\n".join(context_parts)
+
+        # If multiple datasets, add join hint
+        if len(datasets_for_context) > 1:
+            names = list(datasets_for_context.keys())
+            context += f"\n\nNOTE: The user has selected {len(names)} datasets: {', '.join(names)}. " \
+                       f"For operations like JOIN, MERGE or cross-dataset queries, reference them by name."
 
         prompt_parts = []
         if context:
@@ -614,6 +650,8 @@ class PureQLHandler(BaseHTTPRequestHandler):
                             description=r.get("description", "AI operation"),
                             quality_score=prof2.quality_score,
                             rows_affected=r.get("rows_affected", 0),
+                            sql=next((r2.get("sql") for r2 in results if r2.get("sql")), None),
+                            datasets_used=list(datasets_for_context.keys()),
                         )
 
             send_event({
@@ -1169,6 +1207,159 @@ class PureQLHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
+
+    # ── Multi-Dataset Endpoints ──
+
+    def _handle_datasets_list(self):
+        """List all registered datasets with mini-profiles."""
+        result = []
+        for name, df in state.datasets.items():
+            try:
+                prof = profile(df)
+                result.append({
+                    "name": name,
+                    "rowCount": prof.row_count,
+                    "colCount": prof.col_count,
+                    "qualityScore": prof.quality_score,
+                    "columns": [c["name"] for c in prof.to_dict()["columns"][:8]],
+                    "preview": df.head(5).to_dicts(),
+                    "isActive": name == state.dataset_name,
+                })
+            except Exception as e:
+                result.append({"name": name, "error": str(e)})
+        self._respond(200, {"datasets": result})
+
+    def _handle_datasets_add(self, data: dict):
+        """Add a dataset to the registry without resetting the active dataset."""
+        import tempfile, base64 as _base64, os
+        filename = data.get("filename", "dataset.csv")
+        b64 = data.get("data", "")
+        if not b64:
+            self._respond(400, {"error": "Missing base64 data"})
+            return
+        try:
+            file_bytes = _base64.b64decode(b64)
+        except Exception:
+            self._respond(400, {"error": "Invalid base64 data"})
+            return
+
+        suffix = Path(filename).suffix or ".csv"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix, prefix="pureql_") as tmp:
+            tmp.write(file_bytes)
+            tmp_path = tmp.name
+
+        try:
+            df = load(tmp_path)
+            # Use unique name if already exists
+            name = filename
+            if name in state.datasets and name != state.dataset_name:
+                base = Path(filename).stem
+                ext = Path(filename).suffix
+                i = 2
+                while name in state.datasets:
+                    name = f"{base}_{i}{ext}"
+                    i += 1
+            state.datasets[name] = df
+
+            prof = profile(df)
+            self._respond(200, {
+                "success": True,
+                "name": name,
+                "rowCount": prof.row_count,
+                "colCount": prof.col_count,
+                "qualityScore": prof.quality_score,
+                "columns": [c["name"] for c in prof.to_dict()["columns"][:8]],
+                "preview": df.head(10).to_dicts(),
+            })
+        except Exception as e:
+            self._respond(400, {"error": str(e)})
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+    def _handle_datasets_preview(self, data: dict):
+        """Get preview rows for a specific dataset."""
+        name = data.get("name", "")
+        rows = data.get("rows", 50)
+        df = state.datasets.get(name)
+        if df is None:
+            self._respond(404, {"error": f"Dataset '{name}' not found"})
+            return
+        prof = profile(df)
+        self._respond(200, {
+            "name": name,
+            "preview": df.head(rows).to_dicts(),
+            "profile": prof.to_dict(),
+        })
+
+    def _handle_datasets_remove(self, data: dict):
+        """Remove a dataset from the registry."""
+        name = data.get("name", "")
+        if name in state.datasets:
+            del state.datasets[name]
+            self._respond(200, {"success": True, "removed": name})
+        else:
+            self._respond(404, {"error": f"Dataset '{name}' not found"})
+
+    def _handle_versions_compare(self, data: dict):
+        """Compare two versions side-by-side."""
+        v1_id = data.get("v1Id")
+        v2_id = data.get("v2Id")
+        if not v1_id or not v2_id:
+            self._respond(400, {"error": "Missing v1Id or v2Id"})
+            return
+
+        df1 = state.store.get_version(v1_id)
+        df2 = state.store.get_version(v2_id)
+        v1_meta = next((v for v in state.store.versions if v.id == v1_id), None)
+        v2_meta = next((v for v in state.store.versions if v.id == v2_id), None)
+
+        if df1 is None or df2 is None:
+            self._respond(404, {"error": "One or both versions not found"})
+            return
+
+        # Compute diff stats
+        added_rows = max(0, df2.height - df1.height)
+        removed_rows = max(0, df1.height - df2.height)
+
+        # Column diff
+        cols1 = set(df1.columns)
+        cols2 = set(df2.columns)
+        added_cols = list(cols2 - cols1)
+        removed_cols = list(cols1 - cols2)
+        common_cols = list(cols1 & cols2)
+
+        self._respond(200, {
+            "v1": {
+                "id": v1_id,
+                "label": v1_meta.label if v1_meta else v1_id,
+                "description": v1_meta.description if v1_meta else "",
+                "rowCount": df1.height,
+                "colCount": df1.width,
+                "qualityScore": v1_meta.quality_score if v1_meta else 0,
+                "sql": v1_meta.sql if v1_meta else None,
+                "preview": df1.head(50).to_dicts(),
+            },
+            "v2": {
+                "id": v2_id,
+                "label": v2_meta.label if v2_meta else v2_id,
+                "description": v2_meta.description if v2_meta else "",
+                "rowCount": df2.height,
+                "colCount": df2.width,
+                "qualityScore": v2_meta.quality_score if v2_meta else 0,
+                "sql": v2_meta.sql if v2_meta else None,
+                "preview": df2.head(50).to_dicts(),
+            },
+            "diff": {
+                "addedRows": added_rows,
+                "removedRows": removed_rows,
+                "addedColumns": added_cols,
+                "removedColumns": removed_cols,
+                "commonColumns": common_cols,
+            },
+        })
 
     def log_message(self, format, *args):
         """Suppress default logging, print to stderr for Tauri to capture."""

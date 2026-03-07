@@ -1,33 +1,29 @@
 import { useCallback, useRef, useState } from "react";
 import { useAppStore } from "../../stores/appStore";
-import { loadDataset, uploadDataset } from "../../lib/api";
-import { FileUp, AlertCircle } from "lucide-react";
+import { loadDataset, uploadDataset, addDataset } from "../../lib/api";
+import { FileUp, AlertCircle, Plus, Layers } from "lucide-react";
 
-const ACCEPTED = [".csv", ".json", ".parquet", ".xlsx", ".xls", ".tsv"];
-const ACCEPTED_MIME = [
-  "text/csv",
-  "application/json",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/vnd.ms-excel",
-  "text/tab-separated-values",
-  "application/octet-stream", // parquet
-];
+const ACCEPTED = [".csv", ".json", ".parquet", ".xlsx", ".xls", ".tsv", ".txt"];
 
 export function FileDropZone() {
-  const { setDatasetName, setProfile, setPreviewData, setVersions, setLoading, isLoading } =
-    useAppStore();
+  const {
+    setDatasetName, setProfile, setPreviewData, setVersions,
+    setLoading, isLoading, addLoadedDataset, loadedDatasets,
+  } = useAppStore();
   const [dragOver, setDragOver] = useState(false);
   const [error, setError]       = useState<string | null>(null);
+  const [addingExtra, setAddingExtra] = useState(false);
   const fileInputRef            = useRef<HTMLInputElement>(null);
+  const extraInputRef           = useRef<HTMLInputElement>(null);
+
+  const hasPrimary = loadedDatasets.length === 0;
 
   const handleFile = useCallback(
     async (file: File) => {
       setError(null);
       setLoading(true);
       try {
-        // In Tauri production: prefer the native path if available
         const nativePath = (file as any).path as string | undefined;
-
         const res = nativePath
           ? await loadDataset(nativePath)
           : await uploadDataset(file);
@@ -36,65 +32,125 @@ export function FileDropZone() {
         setProfile(res.profile);
         setPreviewData(res.preview);
         setVersions(res.versions);
+
+        // Register as primary dataset
+        addLoadedDataset({
+          name: res.datasetName,
+          rowCount: res.profile.rowCount,
+          colCount: res.profile.colCount,
+          qualityScore: res.profile.qualityScore,
+          columns: res.profile.columns.map((c: any) => c.name).slice(0, 8),
+          preview: res.preview.slice(0, 5),
+          isActive: true,
+        });
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to load dataset");
       } finally {
         setLoading(false);
       }
     },
-    [setDatasetName, setProfile, setPreviewData, setVersions, setLoading]
+    [setDatasetName, setProfile, setPreviewData, setVersions, setLoading, addLoadedDataset]
+  );
+
+  const handleExtraFile = useCallback(
+    async (file: File) => {
+      setError(null);
+      setAddingExtra(true);
+      try {
+        const res = await addDataset(file);
+        addLoadedDataset({
+          name: res.name,
+          rowCount: res.rowCount,
+          colCount: res.colCount,
+          qualityScore: res.qualityScore,
+          columns: res.columns,
+          preview: res.preview.slice(0, 5),
+          isActive: false,
+        });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to add dataset");
+      } finally {
+        setAddingExtra(false);
+      }
+    },
+    [addLoadedDataset]
   );
 
   const handleDrop = useCallback(
-    (e: React.DragEvent) => {
+    async (e: React.DragEvent) => {
       e.preventDefault();
       setDragOver(false);
-      const file = e.dataTransfer.files[0];
-      if (file) handleFile(file);
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length === 0) return;
+
+      if (hasPrimary) {
+        await handleFile(files[0]);
+        for (let i = 1; i < files.length; i++) {
+          await handleExtraFile(files[i]);
+        }
+      } else {
+        for (const file of files) {
+          await handleExtraFile(file);
+        }
+      }
     },
-    [handleFile]
+    [handleFile, handleExtraFile, hasPrimary]
   );
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) handleFile(file);
-    // Reset so same file can be re-selected
+  const handleInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    await handleFile(files[0]);
+    for (let i = 1; i < files.length; i++) {
+      await handleExtraFile(files[i]);
+    }
+    e.target.value = "";
+  };
+
+  const handleExtraInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    for (const file of files) {
+      await handleExtraFile(file);
+    }
     e.target.value = "";
   };
 
   const handleClick = async () => {
-    // Try Tauri native dialog first (works in production)
     try {
       const { open } = await import("@tauri-apps/plugin-dialog");
       const selected = await open({
-        multiple: false,
-        filters: [{ name: "Data Files", extensions: ["csv", "json", "parquet", "xlsx", "xls", "tsv"] }],
+        multiple: true,
+        filters: [{ name: "Data Files", extensions: ["csv", "json", "parquet", "xlsx", "xls", "tsv", "txt"] }],
       });
-      if (selected && typeof selected === "string") {
-        await loadDataset(selected).then((res) => {
-          setDatasetName(res.datasetName);
-          setProfile(res.profile);
-          setPreviewData(res.preview);
-          setVersions(res.versions);
+      if (!selected) return;
+      const paths = Array.isArray(selected) ? selected : [selected];
+      if (hasPrimary && paths.length > 0) {
+        const res = await loadDataset(paths[0]);
+        setDatasetName(res.datasetName);
+        setProfile(res.profile);
+        setPreviewData(res.preview);
+        setVersions(res.versions);
+        addLoadedDataset({
+          name: res.datasetName,
+          rowCount: res.profile.rowCount,
+          colCount: res.profile.colCount,
+          qualityScore: res.profile.qualityScore,
+          columns: res.profile.columns.map((c: any) => c.name).slice(0, 8),
+          preview: res.preview.slice(0, 5),
+          isActive: true,
         });
-        return;
       }
+      return;
     } catch {
-      // Dev mode or Tauri dialog unavailable — fall through to HTML input
+      // fall through to HTML input
     }
     fileInputRef.current?.click();
   };
 
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-8">
-      {/* Hidden native file input — the real fallback */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept={ACCEPTED.join(",")}
-        className="hidden"
-        onChange={handleInputChange}
-      />
+      <input ref={fileInputRef} type="file" accept={ACCEPTED.join(",")} multiple className="hidden" onChange={handleInputChange} />
+      <input ref={extraInputRef} type="file" accept={ACCEPTED.join(",")} multiple className="hidden" onChange={handleExtraInputChange} />
 
       <div
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -112,7 +168,6 @@ export function FileDropZone() {
         `}
       >
         {isLoading ? (
-          /* Loading state */
           <div className="flex flex-col items-center gap-3">
             <div className="w-10 h-10 border-2 border-pureql-accent border-t-transparent rounded-full animate-spin mx-auto" />
             <p className="text-sm font-medium text-zinc-400">Loading dataset…</p>
@@ -120,16 +175,17 @@ export function FileDropZone() {
         ) : (
           <>
             <FileUp
-              className={`mx-auto mb-4 w-10 h-10 transition-colors ${
-                dragOver ? "text-pureql-accent" : "text-zinc-400"
-              }`}
+              className={`mx-auto mb-4 w-10 h-10 transition-colors ${dragOver ? "text-pureql-accent" : "text-zinc-400"}`}
               strokeWidth={1.5}
             />
             <div className="text-sm font-semibold text-zinc-600 mb-1">
               {dragOver ? "Release to load" : "Drop your dataset here"}
             </div>
-            <div className="text-xs text-zinc-400 mb-4">
-              CSV · JSON · Parquet · Excel · TSV
+            <div className="text-xs text-zinc-400 mb-1">
+              CSV · JSON · Parquet · Excel · TSV · TXT
+            </div>
+            <div className="text-[10px] text-zinc-500 mb-4">
+              You can drop multiple files at once
             </div>
             <div className="inline-flex items-center gap-1.5 text-xs text-pureql-accent bg-pureql-accent-dim px-3 py-1.5 rounded-full border border-pureql-accent/20">
               <FileUp className="w-3 h-3" />
@@ -138,6 +194,29 @@ export function FileDropZone() {
           </>
         )}
       </div>
+
+      {/* Add extra dataset button (shown when at least one dataset is loaded) */}
+      {loadedDatasets.length > 0 && (
+        <button
+          onClick={() => extraInputRef.current?.click()}
+          disabled={addingExtra}
+          className="mt-3 flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-dashed
+                     border-pureql-border text-zinc-500 hover:border-pureql-accent/40 hover:text-zinc-300
+                     transition disabled:opacity-50"
+        >
+          {addingExtra ? (
+            <div className="w-3 h-3 border border-pureql-accent border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <Plus className="w-3 h-3" />
+          )}
+          Add another dataset
+          {loadedDatasets.length > 0 && (
+            <span className="flex items-center gap-0.5 text-[9px] text-pureql-accent">
+              <Layers className="w-2.5 h-2.5" />{loadedDatasets.length} loaded
+            </span>
+          )}
+        </button>
+      )}
 
       {error && (
         <div className="mt-4 flex items-start gap-2 text-xs text-red-500 bg-red-50 border border-red-200 rounded-lg px-4 py-3 max-w-md">

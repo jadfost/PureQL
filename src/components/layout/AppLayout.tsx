@@ -3,25 +3,26 @@ import { ChatPanel } from "../chat/ChatPanel";
 import { DataPreview } from "../preview/DataPreview";
 import { VersionPanel } from "../versions/VersionPanel";
 import { ModelsPanel } from "../models/ModelsPanel";
+import { DatasetManager } from "../datasets/DatasetManager";
 import { FileDropZone } from "./FileDropZone";
 import { DatabaseModal } from "../database/DatabaseModal";
 import { useAppStore } from "../../stores/appStore";
 import {
-  Hexagon,
-  Database,
-  GitBranch,
-  Cpu,
-  ChevronRight,
-  ChevronLeft,
-  Zap,
+  Hexagon, Database, GitBranch, Cpu,
+  ChevronRight, ChevronLeft, Zap, Layers, Plus,
 } from "lucide-react";
+import { addDataset as apiAddDataset } from "../../lib/api";
 
-type RightPanel = "versions" | "models" | null;
+type RightPanel = "versions" | "models" | "datasets" | null;
 
 export function AppLayout() {
-  const { datasetName, profile, versions, activeModelInfo } = useAppStore();
+  const {
+    datasetName, profile, versions, activeModelInfo,
+    loadedDatasets, addLoadedDataset, selectedDatasets,
+  } = useAppStore();
   const [showDB, setShowDB] = useState(false);
   const [rightPanel, setRightPanel] = useState<RightPanel>(null);
+  const [addingFile, setAddingFile] = useState(false);
 
   const togglePanel = (panel: RightPanel) => {
     setRightPanel((prev) => (prev === panel ? null : panel));
@@ -30,6 +31,34 @@ export function AppLayout() {
   const PANEL_TITLES: Record<NonNullable<RightPanel>, string> = {
     versions: "Versions",
     models: "AI Models",
+    datasets: "Datasets",
+  };
+
+  const handleQuickAdd = async () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.multiple = true;
+    input.accept = ".csv,.json,.parquet,.xlsx,.xls,.tsv,.txt";
+    input.onchange = async (e) => {
+      const files = Array.from((e.target as HTMLInputElement).files || []);
+      setAddingFile(true);
+      for (const file of files) {
+        try {
+          const res = await apiAddDataset(file);
+          addLoadedDataset({
+            name: res.name,
+            rowCount: res.rowCount,
+            colCount: res.colCount,
+            qualityScore: res.qualityScore,
+            columns: res.columns,
+            preview: res.preview?.slice(0, 5) ?? [],
+            isActive: false,
+          });
+        } catch { /* ignore */ }
+      }
+      setAddingFile(false);
+    };
+    input.click();
   };
 
   return (
@@ -84,6 +113,23 @@ export function AppLayout() {
             </span>
           )}
 
+          {/* Quick add dataset */}
+          {datasetName && (
+            <button
+              onClick={handleQuickAdd}
+              disabled={addingFile}
+              title="Add another dataset"
+              className="text-[10px] px-2 py-1 rounded border border-pureql-border text-zinc-500 hover:text-zinc-300 hover:border-zinc-400 transition flex items-center gap-1"
+            >
+              {addingFile ? (
+                <div className="w-3 h-3 border border-pureql-accent border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <Plus className="w-3 h-3" />
+              )}
+              Dataset
+            </button>
+          )}
+
           {/* DB button */}
           <button
             onClick={() => setShowDB(true)}
@@ -94,8 +140,34 @@ export function AppLayout() {
             Database
           </button>
 
-          {/* Separator */}
           <div className="w-px h-4 bg-pureql-border" />
+
+          {/* Datasets toggle */}
+          {loadedDatasets.length > 0 && (
+            <button
+              onClick={() => togglePanel("datasets")}
+              className={`flex items-center gap-1.5 text-[10px] px-2.5 py-1 rounded border transition font-medium ${
+                rightPanel === "datasets"
+                  ? "bg-sky-500/10 border-sky-500/30 text-sky-400"
+                  : "border-pureql-border text-zinc-500 hover:text-zinc-700 hover:border-zinc-400"
+              }`}
+            >
+              <Layers className="w-3 h-3" />
+              Datasets
+              <span className={`text-[9px] px-1 rounded font-bold ${
+                rightPanel === "datasets"
+                  ? "bg-sky-500 text-white"
+                  : "bg-pureql-panel text-zinc-500"
+              }`}>
+                {loadedDatasets.length}
+              </span>
+              {selectedDatasets.length > 0 && (
+                <span className="text-[8px] px-1 py-0.5 rounded bg-sky-500/20 text-sky-400 border border-sky-500/30">
+                  {selectedDatasets.length} sel
+                </span>
+              )}
+            </button>
+          )}
 
           {/* Versions toggle */}
           <button
@@ -110,13 +182,11 @@ export function AppLayout() {
             <GitBranch className="w-3 h-3" />
             Versions
             {versions.length > 0 && (
-              <span
-                className={`text-[9px] px-1 rounded font-bold ${
-                  rightPanel === "versions"
-                    ? "bg-pureql-accent text-white"
-                    : "bg-pureql-panel text-zinc-500"
-                }`}
-              >
+              <span className={`text-[9px] px-1 rounded font-bold ${
+                rightPanel === "versions"
+                  ? "bg-pureql-accent text-white"
+                  : "bg-pureql-panel text-zinc-500"
+              }`}>
                 {versions.length}
               </span>
             )}
@@ -153,7 +223,6 @@ export function AppLayout() {
         {/* Right: Sliding panel */}
         {rightPanel && (
           <div className="w-72 border-l border-pureql-border flex flex-col bg-pureql-dark shrink-0 overflow-hidden">
-            {/* Panel header */}
             <div className="flex items-center px-3 h-9 border-b border-pureql-border shrink-0">
               <span className="text-[11px] font-semibold text-zinc-600">
                 {PANEL_TITLES[rightPanel]}
@@ -166,16 +235,15 @@ export function AppLayout() {
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
-
-            {/* Panel content */}
             <div className="flex-1 overflow-hidden">
               {rightPanel === "versions" && <VersionPanel />}
               {rightPanel === "models" && <ModelsPanel />}
+              {rightPanel === "datasets" && <DatasetManager />}
             </div>
           </div>
         )}
 
-        {/* Collapsed state: thin edge with open hint */}
+        {/* Collapsed state */}
         {!rightPanel && (
           <div className="flex flex-col items-center justify-center w-5 border-l border-pureql-border bg-pureql-dark shrink-0">
             <button
@@ -189,7 +257,6 @@ export function AppLayout() {
         )}
       </div>
 
-      {/* ── Database Modal ── */}
       {showDB && <DatabaseModal onClose={() => setShowDB(false)} />}
     </div>
   );

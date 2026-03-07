@@ -12,53 +12,65 @@ interface ChatMessage {
 }
 
 export interface ActiveModelInfo {
-  displayName: string;       // "Qwen 2.5 7B" / "GPT-4o"
-  modelId: string;           // "qwen2.5:7b" / "gpt-4o"
+  displayName: string;
+  modelId: string;
   type: "local" | "api";
-  provider?: string;         // "OpenAI" | "Anthropic" | "Groq" | "Mistral AI"
-  providerColor?: string;    // tailwind text color class
+  provider?: string;
+  providerColor?: string;
+}
+
+export interface DatasetEntry {
+  name: string;
+  rowCount: number;
+  colCount: number;
+  qualityScore: number;
+  columns: string[];
+  preview: Record<string, unknown>[];
+  isActive: boolean;
 }
 
 interface AppState {
-  // Onboarding
   isFirstLaunch: boolean;
   setFirstLaunch: (v: boolean) => void;
 
-  // Active AI model
   activeModelInfo: ActiveModelInfo | null;
   setActiveModelInfo: (m: ActiveModelInfo | null) => void;
 
-  // Dataset
   datasetName: string | null;
   setDatasetName: (name: string | null) => void;
 
-  // Profile
+  // Multi-dataset registry
+  loadedDatasets: DatasetEntry[];
+  setLoadedDatasets: (ds: DatasetEntry[]) => void;
+  addLoadedDataset: (ds: DatasetEntry) => void;
+  removeLoadedDataset: (name: string) => void;
+
+  // Selected datasets for the current prompt
+  selectedDatasets: string[];
+  setSelectedDatasets: (names: string[]) => void;
+  toggleSelectedDataset: (name: string) => void;
+
   profile: ProfileData | null;
   setProfile: (p: ProfileData | null) => void;
 
-  // Preview
   previewData: Record<string, unknown>[];
   setPreviewData: (d: Record<string, unknown>[]) => void;
 
-  // Versions
   versions: VersionData[];
   currentVersionId: string | null;
   setVersions: (v: VersionData[]) => void;
   setCurrentVersionId: (id: string | null) => void;
 
-  // Chat
   messages: ChatMessage[];
   addMessage: (m: ChatMessage) => void;
   updateMessage: (id: string, patch: Partial<ChatMessage>) => void;
   clearMessages: () => void;
 
-  // UI
   activePanel: "data" | "sql" | "stats" | "diff";
   setActivePanel: (p: "data" | "sql" | "stats" | "diff") => void;
   currentSQL: string | null;
   setCurrentSQL: (sql: string | null) => void;
 
-  // Loading
   isLoading: boolean;
   setLoading: (v: boolean) => void;
 }
@@ -77,6 +89,29 @@ export const useAppStore = create<AppState>((set) => ({
   datasetName: null,
   setDatasetName: (name) => set({ datasetName: name }),
 
+  loadedDatasets: [],
+  setLoadedDatasets: (ds) => set({ loadedDatasets: ds }),
+  addLoadedDataset: (ds) =>
+    set((s) => ({
+      loadedDatasets: s.loadedDatasets.some((d) => d.name === ds.name)
+        ? s.loadedDatasets.map((d) => (d.name === ds.name ? ds : d))
+        : [...s.loadedDatasets, ds],
+    })),
+  removeLoadedDataset: (name) =>
+    set((s) => ({
+      loadedDatasets: s.loadedDatasets.filter((d) => d.name !== name),
+      selectedDatasets: s.selectedDatasets.filter((n) => n !== name),
+    })),
+
+  selectedDatasets: [],
+  setSelectedDatasets: (names) => set({ selectedDatasets: names }),
+  toggleSelectedDataset: (name) =>
+    set((s) => ({
+      selectedDatasets: s.selectedDatasets.includes(name)
+        ? s.selectedDatasets.filter((n) => n !== name)
+        : [...s.selectedDatasets, name],
+    })),
+
   profile: null,
   setProfile: (p) => set({ profile: p }),
 
@@ -90,9 +125,12 @@ export const useAppStore = create<AppState>((set) => ({
 
   messages: [],
   addMessage: (m) => set((s) => ({ messages: [...s.messages, m] })),
-  updateMessage: (id, patch) => set((s) => ({
-    messages: s.messages.map((msg) => msg.id === id ? { ...msg, ...patch } : msg),
-  })),
+  updateMessage: (id, patch) =>
+    set((s) => ({
+      messages: s.messages.map((msg) =>
+        msg.id === id ? { ...msg, ...patch } : msg
+      ),
+    })),
   clearMessages: () => set({ messages: [] }),
 
   activePanel: "data",

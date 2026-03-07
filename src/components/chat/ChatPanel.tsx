@@ -1,17 +1,22 @@
 import { useState, useRef, useEffect } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { autoClean } from "../../lib/api";
-import { MessageSquare, ArrowUp, Check, Sparkles, Square } from "lucide-react";
+import {
+  MessageSquare, ArrowUp, Check, Sparkles, Square,
+  Layers, X, ChevronDown, ChevronUp,
+} from "lucide-react";
 
 const BRIDGE = "http://127.0.0.1:9741";
 
 export function ChatPanel() {
   const [input, setInput] = useState("");
+  const [showDatasetPicker, setShowDatasetPicker] = useState(false);
   const {
     messages, addMessage, updateMessage,
     setPreviewData, setVersions,
     setProfile, isLoading, setLoading, setCurrentSQL,
-    datasetName,
+    datasetName, loadedDatasets,
+    selectedDatasets, toggleSelectedDataset,
   } = useAppStore();
 
   const endRef        = useRef<HTMLDivElement>(null);
@@ -36,7 +41,6 @@ export function ChatPanel() {
     addMessage({ id: crypto.randomUUID(), role: "user", content: text, timestamp: Date.now() });
     setLoading(true);
 
-    // Placeholder assistant message for streaming
     const assistantId = crypto.randomUUID();
     streamingId.current = assistantId;
     addMessage({ id: assistantId, role: "assistant", content: "", timestamp: Date.now(), streaming: true });
@@ -48,7 +52,10 @@ export function ChatPanel() {
       const res = await fetch(`${BRIDGE}/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({
+          message: text,
+          datasets: selectedDatasets.length > 0 ? selectedDatasets : (datasetName ? [datasetName] : []),
+        }),
         signal: abort.signal,
       });
 
@@ -57,7 +64,7 @@ export function ChatPanel() {
       const reader  = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer    = "";
-      let displayed = ""; // accumulated visible text so far
+      let displayed = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -73,7 +80,6 @@ export function ChatPanel() {
 
           if (payload.type === "token") {
             displayed += payload.text;
-            // Show raw tokens during generation — trim leading { later
             const visible = displayed.startsWith("{") ? "Thinking…" : displayed;
             updateMessage(assistantId, { content: visible, streaming: true });
 
@@ -132,6 +138,8 @@ export function ChatPanel() {
     }
   };
 
+  const hasMultipleDatasets = loadedDatasets.length > 1;
+
   return (
     <>
       {/* Header */}
@@ -155,7 +163,7 @@ export function ChatPanel() {
             Talk to your data.
             <br />
             <span className="text-zinc-500">
-              Try: "clean duplicates", "normalize the city column", or "show quality score"
+              Try: "clean duplicates", "join users and orders on id", or "show quality score"
             </span>
           </div>
         )}
@@ -169,7 +177,6 @@ export function ChatPanel() {
                   : "bg-pureql-card border border-pureql-border rounded-xl rounded-bl-sm text-zinc-400"
               }`}>
                 {msg.content}
-                {/* Blinking cursor while streaming */}
                 {msg.streaming && (
                   <span className="inline-block w-[2px] h-[12px] bg-pureql-accent ml-0.5 align-middle animate-pulse" />
                 )}
@@ -188,15 +195,102 @@ export function ChatPanel() {
         <div ref={endRef} />
       </div>
 
+      {/* Dataset Picker Dropdown */}
+      {hasMultipleDatasets && showDatasetPicker && (
+        <div className="mx-2 mb-1 bg-pureql-card border border-pureql-border rounded-lg overflow-hidden">
+          <div className="px-2 py-1.5 border-b border-pureql-border">
+            <span className="text-[9px] font-semibold text-zinc-500 tracking-wide">SELECT DATASETS FOR THIS PROMPT</span>
+          </div>
+          <div className="p-1.5 space-y-0.5 max-h-40 overflow-y-auto">
+            {loadedDatasets.map((ds) => {
+              const isSelected = selectedDatasets.includes(ds.name);
+              return (
+                <button
+                  key={ds.name}
+                  onClick={() => toggleSelectedDataset(ds.name)}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left transition ${
+                    isSelected
+                      ? "bg-pureql-accent-dim border border-pureql-accent/30"
+                      : "hover:bg-pureql-panel border border-transparent"
+                  }`}
+                >
+                  <div className={`w-3 h-3 rounded border flex items-center justify-center shrink-0 transition ${
+                    isSelected ? "bg-pureql-accent border-pureql-accent" : "border-zinc-500"
+                  }`}>
+                    {isSelected && <Check className="w-2 h-2 text-white" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] font-medium text-zinc-300 truncate">{ds.name}</div>
+                    <div className="text-[9px] text-zinc-500">
+                      {ds.rowCount.toLocaleString()} rows · {ds.colCount} cols
+                    </div>
+                  </div>
+                  {ds.isActive && (
+                    <span className="text-[8px] px-1 py-0.5 bg-emerald-500/20 text-emerald-400 rounded border border-emerald-500/20 shrink-0">
+                      active
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Selected dataset chips */}
+      {selectedDatasets.length > 0 && (
+        <div className="px-2 pb-1 flex flex-wrap gap-1">
+          {selectedDatasets.map((name) => (
+            <span key={name}
+              className="flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full
+                         bg-sky-500/15 border border-sky-500/25 text-sky-400">
+              <Layers className="w-2.5 h-2.5" />
+              <span className="max-w-[80px] truncate">{name}</span>
+              <button
+                onClick={() => toggleSelectedDataset(name)}
+                className="hover:text-sky-200 transition"
+              >
+                <X className="w-2.5 h-2.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* Input */}
       <div className="p-2 border-t border-pureql-border shrink-0">
-        <div className="flex gap-2">
+        <div className="flex gap-1.5">
+          {/* Dataset selector toggle (only when multiple datasets loaded) */}
+          {hasMultipleDatasets && (
+            <button
+              onClick={() => setShowDatasetPicker((v) => !v)}
+              title="Select datasets for this prompt"
+              className={`px-2 py-2 rounded-md border text-xs transition flex items-center gap-1 shrink-0 ${
+                showDatasetPicker || selectedDatasets.length > 0
+                  ? "bg-sky-500/15 border-sky-500/30 text-sky-400"
+                  : "bg-pureql-card border-pureql-border text-zinc-500 hover:text-zinc-300"
+              }`}
+            >
+              <Layers className="w-3 h-3" />
+              {selectedDatasets.length > 0 && (
+                <span className="text-[9px] font-bold">{selectedDatasets.length}</span>
+              )}
+              {showDatasetPicker ? <ChevronDown className="w-2.5 h-2.5" /> : <ChevronUp className="w-2.5 h-2.5" />}
+            </button>
+          )}
+
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-            placeholder={datasetName ? "Ask anything..." : "Load a dataset first..."}
+            placeholder={
+              selectedDatasets.length > 1
+                ? `Ask about ${selectedDatasets.length} datasets…`
+                : datasetName
+                ? "Ask anything..."
+                : "Load a dataset first..."
+            }
             disabled={isLoading && !streamingId.current}
             className="flex-1 bg-pureql-card border border-pureql-border rounded-md px-3 py-2
                        text-xs text-zinc-300 placeholder:text-zinc-600

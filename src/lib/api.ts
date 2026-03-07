@@ -325,6 +325,8 @@ export interface VersionData {
   operation: string;
   rowsAffected: number;
   parentId: string | null;
+  sql?: string | null;
+  datasetsUsed?: string[];
   // optional enriched fields
   rowCount?: number;
   storageBytes?: number;
@@ -483,4 +485,77 @@ export async function writeToDb(params: {
 
 export async function getDbConnections(): Promise<{ connections: DbConnectionInfo[] }> {
   return request("/db/connections", "POST");
+}
+// ── Multi-Dataset ──
+
+export interface DatasetInfo {
+  name: string;
+  rowCount: number;
+  colCount: number;
+  qualityScore: number;
+  columns: string[];
+  preview: Record<string, unknown>[];
+  isActive: boolean;
+  error?: string;
+}
+
+export async function listDatasets(): Promise<{ datasets: DatasetInfo[] }> {
+  return request("/datasets/list", "POST");
+}
+
+export async function addDataset(file: File): Promise<DatasetInfo & { success: boolean }> {
+  const buffer = await file.arrayBuffer();
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 8192;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  const b64 = btoa(binary);
+
+  const res = await fetch(`${BASE_URL}/datasets/add`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename: file.name, data: b64 }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: "Unknown error" }));
+    throw new Error(error.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function removeDataset(name: string): Promise<{ success: boolean }> {
+  return request("/datasets/remove", "POST", { name });
+}
+
+export async function getDatasetPreview(name: string, rows?: number): Promise<{
+  name: string;
+  preview: Record<string, unknown>[];
+  profile: ProfileData;
+}> {
+  return request("/datasets/preview", "POST", { name, rows: rows || 50 });
+}
+
+// ── Version Compare ──
+
+export interface VersionCompare {
+  v1: {
+    id: string; label: string; description: string;
+    rowCount: number; colCount: number; qualityScore: number;
+    sql: string | null; preview: Record<string, unknown>[];
+  };
+  v2: {
+    id: string; label: string; description: string;
+    rowCount: number; colCount: number; qualityScore: number;
+    sql: string | null; preview: Record<string, unknown>[];
+  };
+  diff: {
+    addedRows: number; removedRows: number;
+    addedColumns: string[]; removedColumns: string[]; commonColumns: string[];
+  };
+}
+
+export async function compareVersions(v1Id: string, v2Id: string): Promise<VersionCompare> {
+  return request("/versions/compare", "POST", { v1Id, v2Id });
 }
