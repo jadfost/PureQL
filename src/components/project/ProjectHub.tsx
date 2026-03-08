@@ -462,6 +462,9 @@ export function ProjectHub({ onOpenApp }: Props) {
   const {
     setProjectName, setProjectPath, setProjectCreatedAt,
     setHasProject, previousProject, setPreviousProject,
+    setLoadedDatasets, setProfile, setPreviewData,
+    setVersions, setCurrentVersionId, clearMessages,
+    setDatasetName, setHasAIResult, setCurrentSQL,
   } = useAppStore();
   const [screen, setScreen] = useState<Screen>("hub");
   const [loadingLabel, setLoadingLabel] = useState("Loading project…");
@@ -485,16 +488,30 @@ export function ProjectHub({ onOpenApp }: Props) {
 
   const handleNewProject = () => setScreen("new");
 
+  /** Wipe all session data from the Zustand store so a new project starts blank. */
+  const resetFrontendStore = () => {
+    setLoadedDatasets([]);
+    setProfile(null);
+    setPreviewData([]);
+    setVersions([]);
+    setCurrentVersionId(null);
+    clearMessages();
+    setDatasetName(null);
+    setHasAIResult(false);
+    setCurrentSQL(null);
+  };
+
   const handleConfirmNew = async (name: string) => {
     setLoadingLabel("Creating project…");
     setScreen("loading");
     try {
-      await newProject();
+      await newProject();          // reset Python backend state
+      resetFrontendStore();        // reset React/Zustand frontend state
       const createdAt = Date.now() / 1000;
       setProjectName(name);
       setProjectPath(null);
       setProjectCreatedAt(createdAt);
-      setPreviousProject(null);  // clear resume banner when starting fresh
+      setPreviousProject(null);
       setHasProject(true);
       onOpenApp({ name, path: "", createdAt });
     } catch (err) {
