@@ -1,14 +1,42 @@
+import { useEffect, useState } from "react";
 import { AppLayout } from "./components/layout/AppLayout";
 import { OnboardingWizard } from "./components/onboarding/OnboardingWizard";
 import { ProjectHub } from "./components/project/ProjectHub";
 import { useAppStore } from "./stores/appStore";
 import { useBridge } from "./hooks/useBridge";
+import { getOllamaStatus } from "./lib/api";
 import { Hexagon, AlertTriangle } from "lucide-react";
 import type { ProjectLoadResult } from "./lib/api";
 
+/** Key stored in localStorage once the user completes the wizard at least once */
+const SETUP_DONE_KEY = "pureql_setup_complete";
+
+/**
+ * Returns true when we MUST show the OnboardingWizard.
+ * - First ever launch  (localStorage key missing)
+ * - OR Ollama is not installed at all (critical dependency)
+ */
+async function shouldForceOnboarding(): Promise<{ force: boolean; reason: "first_launch" | "no_ollama" | null }> {
+  const setupDone = localStorage.getItem(SETUP_DONE_KEY);
+  if (!setupDone) {
+    return { force: true, reason: "first_launch" };
+  }
+  // Already set up before — only re-force if Ollama is gone
+  try {
+    const status = await getOllamaStatus();
+    if (!status.installed) {
+      return { force: true, reason: "no_ollama" };
+    }
+  } catch {
+    // Can't reach bridge yet — don't block
+  }
+  return { force: false, reason: null };
+}
+
 function App() {
   const {
-    isFirstLaunch, setFirstLaunch,
+    showOnboardingWizard, setShowOnboardingWizard,
+    setFirstLaunch,
     hasProject, setHasProject,
     setProjectName, setProjectPath, setProjectCreatedAt,
     setLoadedDatasets, setProfile, setPreviewData, setVersions,
@@ -18,7 +46,38 @@ function App() {
 
   const bridge = useBridge();
 
-  if (bridge.checking) {
+  const [setupChecked, setSetupChecked] = useState(false);
+
+  // Once the bridge is ready, evaluate whether we need to show the wizard
+  useEffect(() => {
+    if (bridge.checking || bridge.error) return;
+
+    shouldForceOnboarding().then(({ force, reason }) => {
+      if (force) {
+        setShowOnboardingWizard(true);
+        setFirstLaunch(reason === "first_launch");
+      } else {
+        setShowOnboardingWizard(false);
+        setFirstLaunch(false);
+      }
+      setSetupChecked(true);
+    });
+  }, [bridge.checking, bridge.error]);
+
+  /** Called when the user finishes the wizard */
+  const handleWizardComplete = () => {
+    localStorage.setItem(SETUP_DONE_KEY, "1");
+    setShowOnboardingWizard(false);
+    setFirstLaunch(false);
+  };
+
+  /** Called from ProjectHub to re-open the wizard manually */
+  const handleOpenSetup = () => {
+    setShowOnboardingWizard(true);
+  };
+
+  // ── Loading: bridge still connecting ──────────────────────────────────────
+  if (bridge.checking || (!bridge.error && !setupChecked)) {
     return (
       <div className="h-screen bg-pureql-dark flex flex-col items-center justify-center">
         <Hexagon className="text-pureql-accent w-8 h-8 mb-3" strokeWidth={1.5} />
@@ -30,6 +89,7 @@ function App() {
     );
   }
 
+  // ── Error: bridge failed ───────────────────────────────────────────────────
   if (bridge.error) {
     return (
       <div className="h-screen bg-pureql-dark flex flex-col items-center justify-center p-8">
@@ -43,10 +103,12 @@ function App() {
     );
   }
 
-  if (isFirstLaunch) {
-    return <OnboardingWizard onComplete={() => setFirstLaunch(false)} />;
+  // ── Onboarding wizard (first launch OR Ollama missing) ────────────────────
+  if (showOnboardingWizard) {
+    return <OnboardingWizard onComplete={handleWizardComplete} />;
   }
 
+  // ── Project hub (no active project) ───────────────────────────────────────
   if (!hasProject) {
     return (
       <ProjectHub
@@ -65,10 +127,12 @@ function App() {
           }
           setHasProject(true);
         }}
+        onOpenSetup={handleOpenSetup}
       />
     );
   }
 
+  // ── Main app ───────────────────────────────────────────────────────────────
   return <AppLayout />;
 }
 

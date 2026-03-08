@@ -60,6 +60,8 @@ interface Props {
     createdAt: number;
     loadResult?: ProjectLoadResult;
   }) => void;
+  /** Opens the setup wizard from within the hub */
+  onOpenSetup?: () => void;
 }
 
 type Screen = "hub" | "new" | "loading";
@@ -357,6 +359,7 @@ function HubScreen({
   onOpenRecent,
   onRemoveRecent,
   onImport,
+  onOpenSetup,
 }: {
   recents: RecentProject[];
   loading: boolean;
@@ -367,6 +370,7 @@ function HubScreen({
   onOpenRecent: (p: RecentProject) => void;
   onRemoveRecent: (p: RecentProject) => void;
   onImport: (path: string) => void;
+  onOpenSetup?: () => void;
 }) {
   const hasRecents = recents.length > 0;
 
@@ -452,13 +456,42 @@ function HubScreen({
 
       {/* Import */}
       <ImportZone onFile={onImport} />
+
+      {/* Setup wizard shortcut */}
+      {onOpenSetup && (
+        <div className="mt-4 flex justify-center">
+          <button
+            onClick={onOpenSetup}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all duration-150"
+            style={{
+              background: "transparent",
+              border: "1px solid var(--border)",
+              color: "var(--text-faint)",
+              fontSize: "11px",
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.borderColor = "var(--accent-border)";
+              e.currentTarget.style.color = "var(--accent)";
+              e.currentTarget.style.background = "var(--accent-muted)";
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.borderColor = "var(--border)";
+              e.currentTarget.style.color = "var(--text-faint)";
+              e.currentTarget.style.background = "transparent";
+            }}
+          >
+            <Sparkles className="w-3 h-3" />
+            AI &amp; Setup wizard
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 // ── Root component ────────────────────────────────────────────────────────────
 
-export function ProjectHub({ onOpenApp }: Props) {
+export function ProjectHub({ onOpenApp, onOpenSetup }: Props) {
   const {
     setProjectName, setProjectPath, setProjectCreatedAt,
     setHasProject, previousProject, setPreviousProject,
@@ -600,6 +633,7 @@ export function ProjectHub({ onOpenApp }: Props) {
             onOpenRecent={handleOpenRecent}
             onRemoveRecent={handleRemoveRecent}
             onImport={handleImport}
+            onOpenSetup={onOpenSetup}
           />
         )}
 

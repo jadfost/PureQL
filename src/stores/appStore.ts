@@ -33,6 +33,10 @@ interface AppState {
   isFirstLaunch: boolean;
   setFirstLaunch: (v: boolean) => void;
 
+  // Controls whether the OnboardingWizard is visible (persisted via localStorage)
+  showOnboardingWizard: boolean;
+  setShowOnboardingWizard: (v: boolean) => void;
+
   // Project
   projectName: string | null;
   projectPath: string | null;
@@ -100,6 +104,9 @@ interface AppState {
 export const useAppStore = create<AppState>((set) => ({
   isFirstLaunch: true,
   setFirstLaunch: (v) => set({ isFirstLaunch: v }),
+
+  showOnboardingWizard: false,
+  setShowOnboardingWizard: (v) => set({ showOnboardingWizard: v }),
 
   projectName: null,
   projectPath: null,
