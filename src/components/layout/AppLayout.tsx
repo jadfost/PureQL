@@ -302,7 +302,7 @@ function WaitingForQuery({ datasets }: { datasets: { name: string; rowCount: num
 export function AppLayout() {
   const {
     datasetName, profile, versions, activeModelInfo,
-    loadedDatasets, addLoadedDataset,
+    loadedDatasets, addLoadedDataset, selectedDatasets,
     hasAIResult, currentVersionId,
     projectName, projectPath, projectCreatedAt,
     messages,
@@ -1150,78 +1150,74 @@ export function AppLayout() {
       {showDB && <DatabaseModal onClose={() => setShowDB(false)} />}
 
       {/* ── Footer ── */}
-      {(datasetName || displayScore !== null) && (
-        <footer
-          className="flex items-center px-4 h-6 shrink-0 border-t gap-4 select-none"
-          style={{ borderColor: "var(--border)", background: "var(--bg-sunken)" }}
-        >
-          {/* Dataset name */}
-          {datasetName && (
-            <span className="flex items-center gap-1.5 text-[10px]" style={{ color: "var(--text-faint)" }}>
-              <Layers className="w-2.5 h-2.5 shrink-0" />
-              <span className="font-mono truncate max-w-[200px]">{datasetName}</span>
-            </span>
-          )}
+      {loadedDatasets.length > 0 && (() => {
+        // Datasets to display: selected ones, or fallback to active dataset
+        const footerDatasets = selectedDatasets.length > 0
+          ? loadedDatasets.filter(ds => selectedDatasets.includes(ds.name))
+          : loadedDatasets.filter(ds => ds.name === datasetName).slice(0, 1);
 
-          {/* Separator */}
-          {datasetName && displayScore !== null && (
-            <div className="w-px h-3 shrink-0" style={{ background: "var(--border-strong)" }} />
-          )}
+        if (footerDatasets.length === 0) return null;
 
-          {/* Quality score */}
-          {displayScore !== null && (
-            <span className="flex items-center gap-1.5 text-[10px]">
-              <div
-                className="w-1.5 h-1.5 rounded-full shrink-0"
-                style={{
-                  background: displayScore >= 80 ? "var(--success)"
-                            : displayScore >= 60 ? "var(--warning)"
-                            : "var(--danger)",
-                }}
-              />
-              <span
-                className="font-bold tabular-nums"
-                style={{
-                  color: displayScore >= 80 ? "var(--success-dark)"
-                       : displayScore >= 60 ? "#b45309"
-                       : "var(--danger)",
-                }}
-              >
-                {displayScore}/100
+        const scoreColor = (s: number) =>
+          s >= 80 ? "var(--success-dark)" : s >= 60 ? "#b45309" : "var(--danger)";
+        const scoreDot = (s: number) =>
+          s >= 80 ? "var(--success)" : s >= 60 ? "var(--warning)" : "var(--danger)";
+
+        return (
+          <footer
+            className="flex items-center px-4 h-6 shrink-0 border-t gap-0 select-none overflow-x-auto"
+            style={{ borderColor: "var(--border)", background: "var(--bg-sunken)" }}
+          >
+            {footerDatasets.map((ds, i) => (
+              <div key={ds.name} className="flex items-center gap-0 shrink-0">
+                {/* Separator between datasets */}
+                {i > 0 && (
+                  <div className="w-px h-3 mx-3 shrink-0" style={{ background: "var(--border-strong)" }} />
+                )}
+
+                {/* Name */}
+                <span className="flex items-center gap-1.5 text-[10px] mr-2" style={{ color: "var(--text-faint)" }}>
+                  <Layers className="w-2.5 h-2.5 shrink-0" />
+                  <span className="font-mono truncate max-w-[180px]">{ds.name}</span>
+                </span>
+
+                {/* Score */}
+                <span className="flex items-center gap-1 text-[10px] mr-2">
+                  <div className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ background: scoreDot(ds.qualityScore) }} />
+                  <span className="font-bold tabular-nums" style={{ color: scoreColor(ds.qualityScore) }}>
+                    {ds.qualityScore}/100
+                  </span>
+                </span>
+
+                {/* Rows × cols */}
+                <span className="text-[10px] font-mono tabular-nums" style={{ color: "var(--text-ghost)" }}>
+                  {ds.rowCount.toLocaleString()} rows × {ds.colCount} cols
+                </span>
+              </div>
+            ))}
+
+            {/* Active version label — shown after the datasets */}
+            {hasAIResult && activeVersion && (
+              <>
+                <div className="w-px h-3 mx-3 shrink-0" style={{ background: "var(--border-strong)" }} />
+                <span className="text-[10px] truncate max-w-[160px]" style={{ color: "var(--accent)" }}>
+                  {activeVersion.label}
+                </span>
+              </>
+            )}
+
+            <div className="flex-1" />
+
+            {/* Version count */}
+            {versions.length > 0 && (
+              <span className="text-[10px] shrink-0" style={{ color: "var(--text-ghost)" }}>
+                v{versions.length}
               </span>
-            </span>
-          )}
-
-          {/* Rows × cols */}
-          {displayRows !== null && (
-            <>
-              <div className="w-px h-3 shrink-0" style={{ background: "var(--border-strong)" }} />
-              <span className="text-[10px] font-mono tabular-nums" style={{ color: "var(--text-faint)" }}>
-                {displayRows.toLocaleString()} rows × {displayCols} cols
-              </span>
-            </>
-          )}
-
-          {/* Active version label */}
-          {hasAIResult && activeVersion && (
-            <>
-              <div className="w-px h-3 shrink-0" style={{ background: "var(--border-strong)" }} />
-              <span className="text-[10px] truncate max-w-[160px]" style={{ color: "var(--accent)" }}>
-                {activeVersion.label}
-              </span>
-            </>
-          )}
-
-          <div className="flex-1" />
-
-          {/* Right: version count hint */}
-          {versions.length > 0 && (
-            <span className="text-[10px]" style={{ color: "var(--text-ghost)" }}>
-              v{versions.length}
-            </span>
-          )}
-        </footer>
-      )}
+            )}
+          </footer>
+        );
+      })()}
     </div>
   );
 }
