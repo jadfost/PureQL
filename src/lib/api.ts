@@ -568,3 +568,73 @@ export interface VersionCompare {
 export async function compareVersions(v1Id: string, v2Id: string): Promise<VersionCompare> {
   return request("/versions/compare", "POST", { v1Id, v2Id });
 }
+// ── Project ──
+
+export interface RecentProject {
+  name: string;
+  path: string;
+  modified_at: number;
+  dataset_count: number;
+  version_count: number;
+}
+
+export interface ProjectLoadResult {
+  success: boolean;
+  meta: {
+    name: string;
+    created_at: number;
+    modified_at: number;
+    pureql_version: string;
+    dataset_count: number;
+    version_count: number;
+  };
+  activeDataset: string;
+  aiModel: string;
+  aiProvider: string;
+  chatHistory: { id: string; role: string; content: string; timestamp: number }[];
+  datasets: {
+    name: string;
+    rowCount: number;
+    colCount: number;
+    qualityScore: number;
+    columns: string[];
+    preview: Record<string, unknown>[];
+    isActive: boolean;
+  }[];
+  versions: VersionData[];
+  currentVersionId: string | null;
+  profile: ProfileData | null;
+  preview: Record<string, unknown>[];
+  dbConnections: { name: string; engineType: string }[];
+}
+
+export async function getRecentProjects(): Promise<{ projects: RecentProject[] }> {
+  const res = await fetch(`${BASE_URL}/project/recent`, { method: "GET" });
+  if (!res.ok) return { projects: [] };
+  return res.json();
+}
+
+export async function saveProject(params: {
+  path: string;
+  project_name: string;
+  chat_history: { id: string; role: string; content: string; timestamp: number }[];
+  created_at?: number;
+}): Promise<{ success: boolean; path: string; name: string; size_bytes: number }> {
+  return request("/project/save", "POST", params as unknown as Record<string, unknown>);
+}
+
+export async function loadProject(path: string): Promise<ProjectLoadResult> {
+  return request("/project/load", "POST", { path });
+}
+
+export async function newProject(): Promise<{ success: boolean }> {
+  return request("/project/new", "POST", {});
+}
+
+export async function removeRecentProject(path: string): Promise<{ success: boolean }> {
+  return request("/project/recent/remove", "POST", { path });
+}
+
+export async function getDefaultProjectPath(name: string): Promise<{ path: string; folder: string }> {
+  return request("/project/default-path", "POST", { name });
+}

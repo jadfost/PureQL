@@ -39,6 +39,11 @@ from pureql.ai.ollama_client import (
 )
 from pureql.ai.interpreter import interpret, build_context
 from pureql.ai.keychain import save_api_key, get_api_key, delete_api_key, has_api_key
+from pureql.project import (
+    save_project, load_project,
+    get_recent_projects, remove_recent,
+    get_default_save_path, get_default_project_dir,
+)
 
 
 # ── Global State ──
@@ -605,6 +610,16 @@ class PureQLHandler(BaseHTTPRequestHandler):
                 self._handle_apikey_save(data)
             elif path == "/apikey/delete":
                 self._handle_apikey_delete(data)
+            elif path == "/project/save":
+                self._handle_project_save(data)
+            elif path == "/project/load":
+                self._handle_project_load(data)
+            elif path == "/project/recent/remove":
+                self._handle_project_recent_remove(data)
+            elif path == "/project/new":
+                self._handle_project_new(data)
+            elif path == "/project/default-path":
+                self._handle_project_default_path(data)
             else:
                 self._respond(404, {"error": f"Unknown endpoint: {path}"})
         except Exception as e:
@@ -613,6 +628,8 @@ class PureQLHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/health":
             self._respond(200, {"status": "ok", "version": "0.1.0"})
+        elif self.path == "/project/recent":
+            self._respond(200, {"projects": get_recent_projects()})
         elif self.path == "/state":
             self._respond(200, {
                 "hasDataset": state.df is not None,
@@ -1562,6 +1579,221 @@ class PureQLHandler(BaseHTTPRequestHandler):
             return
         delete_api_key(provider)
         self._respond(200, {"success": True, "provider": provider})
+
+    # ── Project Handlers ──
+
+    def _handle_project_save(self, data: dict):
+        """Save current session to a .pureql file."""
+        path = data.get("path", "")
+        project_name = data.get("project_name", "Untitled Project")
+        chat_history = data.get("chat_history", [])
+        created_at = data.get("created_at")
+
+        if not path:
+            self._respond(400, {"error": "Missing 'path'"})
+            return
+
+        # Build version snapshots dict from VersionStore
+        version_snapshots = {}
+        if state.store:
+            for vid, snap in state.store._snapshots.items():
+                version_snapshots[vid] = snap
+
+        # Serialize version metadata
+        versions_meta = []
+        if state.store and state.store.versions:
+            for v in state.store.versions:
+                versions_meta.append({
+                    "id": v.id,
+                    "label": v.label,
+                    "description": v.description,
+                    "timestamp": v.timestamp,
+                    "quality_score": v.quality_score,
+                    "parent_id": v.parent_id,
+                    "operation": v.operation,
+                    "rows_affected": v.rows_affected,
+                    "sql": v.sql,
+                    "datasets_used": v.datasets_used,
+                    "row_count": v.row_count,
+                    "col_count": v.col_count,
+                })
+
+        # Build datasets dict (include active df under its name + multi-datasets)
+        datasets = dict(state.datasets)
+        if state.df is not None and state.dataset_name:
+            datasets[state.dataset_name] = state.df
+
+        # DB connections (names only)
+        db_conns = []
+        if state.connections and hasattr(state.connections, "_connections"):
+            for name, info in state.connections._connections.items():
+                db_conns.append({
+                    "name": name,
+                    "engineType": info.get("engine_type", ""),
+                })
+
+        result = save_project(
+            path,
+            project_name=project_name,
+            datasets=datasets,
+            versions_meta=versions_meta,
+            version_snapshots=version_snapshots,
+            current_version_id=state.store.current_id if state.store else None,
+            active_dataset_name=state.dataset_name,
+            ai_model=state.ai_model,
+            ai_provider=state.ai_provider,
+            chat_history=chat_history,
+            db_connections=db_conns,
+            created_at=created_at,
+        )
+        self._respond(200, result)
+
+    def _handle_project_load(self, data: dict):
+        """Load a .pureql file and restore session state."""
+        path = data.get("path", "")
+        if not path:
+            self._respond(400, {"error": "Missing 'path'"})
+            return
+
+        loaded = load_project(path)
+
+        # Restore datasets into state
+        state.datasets = loaded["datasets"]
+
+        # Restore active dataset
+        active_name = loaded.get("active_dataset_name", "")
+        if active_name and active_name in state.datasets:
+            state.df = state.datasets[active_name]
+            state.dataset_name = active_name
+        elif state.datasets:
+            # Fall back to first dataset
+            first = next(iter(state.datasets))
+            state.df = state.datasets[first]
+            state.dataset_name = first
+            active_name = first
+        else:
+            state.df = None
+            state.dataset_name = ""
+
+        # Restore AI settings
+        state.ai_model = loaded.get("ai_model", "qwen2.5:7b")
+        state.ai_provider = loaded.get("ai_provider", "ollama")
+
+        # Restore version store from metadata + snapshots
+        from pureql.versioning import VersionStore, Version
+        new_store = VersionStore()
+        for vm in loaded.get("versions_meta", []):
+            v = Version(
+                id=vm["id"],
+                label=vm["label"],
+                description=vm["description"],
+                timestamp=vm["timestamp"],
+                quality_score=vm["quality_score"],
+                parent_id=vm.get("parent_id"),
+                operation=vm.get("operation", ""),
+                rows_affected=vm.get("rows_affected", 0),
+                sql=vm.get("sql"),
+                datasets_used=vm.get("datasets_used", []),
+                row_count=vm.get("row_count", 0),
+                col_count=vm.get("col_count", 0),
+            )
+            new_store.versions.append(v)
+        new_store._snapshots = loaded.get("version_snapshots", {})
+        new_store.current_id = loaded.get("current_version_id")
+        state.store = new_store
+        state._profile_cache = {}
+        state._arrow_cache = {}
+        state._duckdb_registered = {}
+
+        # Build serializable versions list for response
+        versions_out = []
+        for v in new_store.versions:
+            snap = new_store._snapshots.get(v.id)
+            versions_out.append({
+                "id": v.id,
+                "label": v.label,
+                "description": v.description,
+                "timestamp": v.timestamp,
+                "qualityScore": v.quality_score,
+                "operation": v.operation,
+                "rowsAffected": v.rows_affected,
+                "parentId": v.parent_id,
+                "sql": v.sql,
+                "datasetsUsed": v.datasets_used,
+                "rowCount": snap.height if snap is not None else v.row_count,
+                "storageBytes": snap.estimated_size() if snap is not None else 0,
+            })
+
+        # Build dataset summaries for response
+        from pureql.profiling import profile as _profile
+        datasets_out = []
+        for ds_name, ds_df in state.datasets.items():
+            try:
+                prof = _profile(ds_df)
+                datasets_out.append({
+                    "name": ds_name,
+                    "rowCount": ds_df.height,
+                    "colCount": ds_df.width,
+                    "qualityScore": prof.quality_score,
+                    "columns": ds_df.columns,
+                    "preview": ds_df.head(50).to_dicts(),
+                    "isActive": ds_name == active_name,
+                })
+            except Exception:
+                datasets_out.append({
+                    "name": ds_name,
+                    "rowCount": ds_df.height,
+                    "colCount": ds_df.width,
+                    "qualityScore": 0,
+                    "columns": ds_df.columns,
+                    "preview": [],
+                    "isActive": ds_name == active_name,
+                })
+
+        # Active dataset profile + preview
+        profile_out = None
+        preview_out = []
+        if state.df is not None:
+            try:
+                prof = _profile(state.df)
+                profile_out = prof.to_dict()
+                preview_out = state.df.head(100).to_dicts()
+            except Exception:
+                pass
+
+        self._respond(200, {
+            "success": True,
+            "meta": loaded.get("meta", {}),
+            "activeDataset": active_name,
+            "aiModel": state.ai_model,
+            "aiProvider": state.ai_provider,
+            "chatHistory": loaded.get("chat_history", []),
+            "datasets": datasets_out,
+            "versions": versions_out,
+            "currentVersionId": new_store.current_id,
+            "profile": profile_out,
+            "preview": preview_out,
+            "dbConnections": loaded.get("db_connections", []),
+        })
+
+    def _handle_project_recent_remove(self, data: dict):
+        """Remove a path from the recent projects list."""
+        path = data.get("path", "")
+        if path:
+            remove_recent(path)
+        self._respond(200, {"success": True})
+
+    def _handle_project_new(self, data: dict):
+        """Reset session state for a new project."""
+        state.reset()
+        self._respond(200, {"success": True})
+
+    def _handle_project_default_path(self, data: dict):
+        """Return the resolved default save path for a project name."""
+        name = data.get("name", "untitled")
+        path = get_default_save_path(name)
+        folder = str(get_default_project_dir())
+        self._respond(200, {"path": path, "folder": folder})
 
     # ── Response Helper ──
 

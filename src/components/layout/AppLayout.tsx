@@ -12,9 +12,9 @@ import { useAppStore } from "../../stores/appStore";
 import {
   Hexagon, GitBranch, Cpu, Database, Layers,
   Plus, SplitSquareVertical, Pin, X,
-  Zap, ChevronLeft, Settings,
+  Zap, ChevronLeft, Settings, Save, FolderOpen, CheckCircle2,
 } from "lucide-react";
-import { addDataset as apiAddDataset } from "../../lib/api";
+import { addDataset as apiAddDataset, saveProject, getDefaultProjectPath } from "../../lib/api";
 
 type SidePanel = "versions" | "models" | "datasets" | "database" | "settings";
 
@@ -304,6 +304,8 @@ export function AppLayout() {
     datasetName, profile, versions, activeModelInfo,
     loadedDatasets, addLoadedDataset,
     hasAIResult, currentVersionId,
+    projectName, projectPath, projectCreatedAt,
+    messages,
   } = useAppStore();
 
   // ── Panel state ──
@@ -313,6 +315,11 @@ export function AppLayout() {
   const [pinnedPanels, setPinnedPanels] = useState<SidePanel[]>([]);
   const [showDB, setShowDB] = useState(false);
   const [addingFile, setAddingFile] = useState(false);
+  const [saving, setSaving]         = useState(false);
+  const [savedOk, setSavedOk]       = useState(false);
+  const [saveAsOpen, setSaveAsOpen] = useState(false);
+  const [saveAsInput, setSaveAsInput] = useState("");
+  const [saveAsError, setSaveAsError] = useState<string | null>(null);
 
   // ── Bottom panes ──
   const [bottomPanes, setBottomPanes] = useState<(0 | 1)[]>([]);
@@ -425,6 +432,108 @@ export function AppLayout() {
   const headerLabel    = hasAIResult && activeVersion
     ? activeVersion.label
     : datasetName ?? null;
+
+  /** Build the chat payload from store messages */
+  const _chatPayload = () =>
+    (messages || []).map((m: { id: string; role: string; content: string; timestamp: number }) => ({
+      id: m.id, role: m.role, content: m.content, timestamp: m.timestamp,
+    }));
+
+  /** Core save — calls Python with a resolved absolute path */
+  const _doSave = async (filePath: string) => {
+    const name = projectName || "untitled";
+    const result = await saveProject({
+      path: filePath,
+      project_name: name,
+      chat_history: _chatPayload(),
+      created_at: projectCreatedAt ?? undefined,
+    });
+    // Persist the path back into the store so subsequent Saves reuse it
+    useAppStore.getState().setProjectPath(result.path);
+    return result;
+  };
+
+  /** Ctrl+S / Save button — saves to existing path or default path */
+  const handleSave = async () => {
+    if (saving) return;
+    setSaving(true);
+    setSavedOk(false);
+    try {
+      let filePath = projectPath;
+      if (!filePath) {
+        // Ask Python for the resolved default path (expands ~ server-side)
+        const { path } = await getDefaultProjectPath(projectName || "untitled");
+        filePath = path;
+      }
+      await _doSave(filePath);
+      setSavedOk(true);
+      setTimeout(() => setSavedOk(false), 2500);
+    } catch (err) {
+      console.error("Save project failed:", err);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** Save As — tries Tauri native dialog, falls back to inline path input */
+  const handleSaveAs = async () => {
+    // Try Tauri dialog API (available in packaged desktop app)
+    try {
+      // @ts-ignore — Tauri globals injected at runtime
+      const tauriDialog = window.__TAURI__?.dialog ?? window.__TAURI_INVOKE__;
+      if (window.__TAURI__) {
+        // @ts-ignore
+        const { save: tauriSave } = await import("@tauri-apps/plugin-dialog").catch(() => ({}));
+        if (tauriSave) {
+          const defaultName = projectName
+            ? projectName.replace(/[/\\: ]/g, "_") + ".pureql"
+            : "untitled.pureql";
+          const { path: defaultDir } = await getDefaultProjectPath(projectName || "untitled");
+          const chosen = await tauriSave({
+            title: "Save PureQL Project",
+            defaultPath: defaultDir,
+            filters: [{ name: "PureQL Project", extensions: ["pureql"] }],
+          });
+          if (chosen) {
+            setSaving(true);
+            try {
+              await _doSave(chosen);
+              setSavedOk(true);
+              setTimeout(() => setSavedOk(false), 2500);
+            } finally {
+              setSaving(false);
+            }
+          }
+          return;
+        }
+      }
+    } catch {
+      // Tauri not available — fall through to inline input
+    }
+
+    // Fallback: show inline path input modal
+    const { path: defaultPath } = await getDefaultProjectPath(projectName || "untitled");
+    setSaveAsInput(defaultPath);
+    setSaveAsError(null);
+    setSaveAsOpen(true);
+  };
+
+  const handleSaveAsConfirm = async () => {
+    const p = saveAsInput.trim();
+    if (!p) { setSaveAsError("Please enter a valid path."); return; }
+    setSaving(true);
+    setSaveAsError(null);
+    try {
+      await _doSave(p.endsWith(".pureql") ? p : p + ".pureql");
+      setSaveAsOpen(false);
+      setSavedOk(true);
+      setTimeout(() => setSavedOk(false), 2500);
+    } catch (err) {
+      setSaveAsError(err instanceof Error ? err.message : "Save failed.");
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleQuickAdd = async () => {
     const input = document.createElement("input");
@@ -554,7 +663,146 @@ export function AppLayout() {
             {showBottom ? "Hide preview" : "Dataset preview"}
           </button>
         )}
+
+        {/* Save + Save As */}
+        {projectName && (
+          <div className="flex items-center gap-1 ml-1.5">
+            {/* Save */}
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              title={projectPath ? `Save to ${projectPath}` : "Save (auto path)"}
+              className="flex items-center gap-1 text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-all duration-200"
+              style={{
+                borderColor: savedOk ? "rgba(16,185,129,0.4)" : "var(--border)",
+                color:       savedOk ? "var(--success)"       : "var(--text-faint)",
+                background:  savedOk ? "rgba(16,185,129,0.07)": "transparent",
+              }}
+              onMouseEnter={e => { if (!savedOk && !saving) { e.currentTarget.style.borderColor = "var(--accent-border)"; e.currentTarget.style.color = "var(--accent)"; }}}
+              onMouseLeave={e => { if (!savedOk) { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-faint)"; }}}
+            >
+              {saving
+                ? <div className="w-3 h-3 rounded-full animate-spin" style={{ border: "1.5px solid var(--text-faint)", borderTopColor: "transparent" }} />
+                : savedOk
+                  ? <CheckCircle2 className="w-3 h-3" />
+                  : <Save className="w-3 h-3" />}
+              {saving ? "Saving…" : savedOk ? "Saved" : "Save"}
+            </button>
+
+            {/* Save As — the divider + folder icon */}
+            <button
+              onClick={handleSaveAs}
+              disabled={saving}
+              title="Save As — choose location"
+              className="flex items-center justify-center w-6 h-6 rounded-md border transition-all duration-150"
+              style={{ borderColor: "var(--border)", background: "transparent", color: "var(--text-ghost)" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--accent-border)"; e.currentTarget.style.color = "var(--accent)"; e.currentTarget.style.background = "var(--accent-subtle)"; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-ghost)"; e.currentTarget.style.background = "transparent"; }}
+            >
+              <FolderOpen className="w-3 h-3" />
+            </button>
+          </div>
+        )}
       </header>
+
+      {/* ── Save As modal (fallback for non-Tauri env) ── */}
+      {saveAsOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(4px)" }}
+          onClick={e => { if (e.target === e.currentTarget) setSaveAsOpen(false); }}
+        >
+          <div
+            className="w-full max-w-md mx-4 rounded-2xl p-6 shadow-2xl"
+            style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl flex items-center justify-center"
+                  style={{ background: "var(--accent-muted)", border: "1px solid var(--accent-border)" }}>
+                  <FolderOpen className="w-4 h-4" style={{ color: "var(--accent)" }} />
+                </div>
+                <div>
+                  <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>Save As</div>
+                  <div className="text-[10px]" style={{ color: "var(--text-ghost)" }}>Choose where to save your project</div>
+                </div>
+              </div>
+              <button
+                onClick={() => setSaveAsOpen(false)}
+                className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
+                style={{ color: "var(--text-faint)" }}
+                onMouseEnter={e => e.currentTarget.style.background = "var(--bg-sunken)"}
+                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Path input */}
+            <div className="mb-2">
+              <label className="block text-[10px] font-semibold uppercase tracking-wide mb-1.5"
+                style={{ color: "var(--text-faint)" }}>
+                File path
+              </label>
+              <input
+                type="text"
+                value={saveAsInput}
+                onChange={e => { setSaveAsInput(e.target.value); setSaveAsError(null); }}
+                onKeyDown={e => { if (e.key === "Enter") handleSaveAsConfirm(); if (e.key === "Escape") setSaveAsOpen(false); }}
+                autoFocus
+                placeholder="/Users/you/Documents/PureQL/my-project.pureql"
+                className="w-full px-3 py-2.5 rounded-xl text-xs font-mono outline-none transition-all"
+                style={{
+                  background: "var(--bg-sunken)",
+                  border: `1px solid ${saveAsError ? "rgba(239,68,68,0.5)" : "var(--border)"}`,
+                  color: "var(--text-primary)",
+                  fontFamily: "monospace",
+                }}
+                onFocus={e => { e.currentTarget.style.borderColor = "var(--accent-border)"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(14,165,233,0.08)"; }}
+                onBlur={e => { e.currentTarget.style.borderColor = saveAsError ? "rgba(239,68,68,0.5)" : "var(--border)"; e.currentTarget.style.boxShadow = "none"; }}
+              />
+              {saveAsError && (
+                <p className="text-[10px] mt-1.5 flex items-center gap-1" style={{ color: "var(--danger)" }}>
+                  <span>⚠</span> {saveAsError}
+                </p>
+              )}
+              {!saveAsError && (
+                <p className="text-[10px] mt-1.5" style={{ color: "var(--text-ghost)" }}>
+                  Extension <code className="font-mono">.pureql</code> added automatically if omitted.
+                </p>
+              )}
+            </div>
+
+            {/* Buttons */}
+            <div className="flex gap-2 mt-5">
+              <button
+                onClick={() => setSaveAsOpen(false)}
+                className="btn-ghost flex-1 justify-center"
+                style={{ padding: "0.55rem" }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveAsConfirm}
+                disabled={saving || !saveAsInput.trim()}
+                className="btn-primary flex-[2] justify-center"
+                style={{
+                  background: saving || !saveAsInput.trim() ? "var(--bg-sunken)" : "var(--gradient-accent)",
+                  boxShadow: saving || !saveAsInput.trim() ? "none" : "var(--accent-glow-sm)",
+                  color: saving || !saveAsInput.trim() ? "var(--text-ghost)" : "white",
+                  padding: "0.55rem",
+                  cursor: saving || !saveAsInput.trim() ? "not-allowed" : "pointer",
+                }}
+              >
+                {saving
+                  ? <><div className="w-3 h-3 rounded-full animate-spin mr-1.5" style={{ border: "1.5px solid white", borderTopColor: "transparent" }} />Saving…</>
+                  : <><Save className="w-3.5 h-3.5" />Save here</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Body ── */}
       <div className="flex flex-1 overflow-hidden min-h-0">

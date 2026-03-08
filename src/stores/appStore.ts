@@ -33,6 +33,16 @@ interface AppState {
   isFirstLaunch: boolean;
   setFirstLaunch: (v: boolean) => void;
 
+  // Project
+  projectName: string | null;
+  projectPath: string | null;
+  projectCreatedAt: number | null;
+  setProjectName: (name: string | null) => void;
+  setProjectPath: (path: string | null) => void;
+  setProjectCreatedAt: (t: number | null) => void;
+  hasProject: boolean;
+  setHasProject: (v: boolean) => void;
+
   activeModelInfo: ActiveModelInfo | null;
   setActiveModelInfo: (m: ActiveModelInfo | null) => void;
 
@@ -86,6 +96,15 @@ interface AppState {
 export const useAppStore = create<AppState>((set) => ({
   isFirstLaunch: true,
   setFirstLaunch: (v) => set({ isFirstLaunch: v }),
+
+  projectName: null,
+  projectPath: null,
+  projectCreatedAt: null,
+  setProjectName: (name) => set({ projectName: name }),
+  setProjectPath: (path) => set({ projectPath: path }),
+  setProjectCreatedAt: (t) => set({ projectCreatedAt: t }),
+  hasProject: false,
+  setHasProject: (v) => set({ hasProject: v }),
 
   activeModelInfo: {
     displayName: "Qwen 2.5 7B",
