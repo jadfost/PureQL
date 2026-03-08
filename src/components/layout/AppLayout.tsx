@@ -589,7 +589,7 @@ export function AppLayout() {
       {/* ── Header ── */}
       <header className="flex items-center px-3 h-10 shrink-0 border-b"
               style={{ borderColor: "var(--border)", background: "white", boxShadow: "var(--shadow-xs)" }}>
-        
+
         {/* Logo */}
         <div className="flex items-center gap-1.5 mr-3 select-none">
           <div className="w-6 h-6 rounded-lg flex items-center justify-center"
@@ -598,12 +598,12 @@ export function AppLayout() {
           </div>
           <span className="text-[13px] font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>PureQL</span>
         </div>
-        
+
         {/* Back to Projects */}
         <button
           onClick={() => setBackModalOpen(true)}
           title="Back to Projects"
-          className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-lg border transition-all duration-150 shrink-0"
+          className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-lg border transition-all duration-150 mr-1 shrink-0"
           style={{ borderColor: "var(--border)", color: "var(--text-ghost)", background: "transparent" }}
           onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--accent-border)"; e.currentTarget.style.color = "var(--accent)"; e.currentTarget.style.background = "var(--accent-subtle)"; }}
           onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-ghost)"; e.currentTarget.style.background = "transparent"; }}
@@ -614,8 +614,7 @@ export function AppLayout() {
 
         {/* Save + Save As */}
         {projectName && (
-          <div className="flex items-center gap-1 ml-1.5">
-            {/* Save */}
+          <div className="flex items-center gap-1 ml-1">
             <button
               onClick={handleSave}
               disabled={saving}
@@ -631,13 +630,9 @@ export function AppLayout() {
             >
               {saving
                 ? <div className="w-3 h-3 rounded-full animate-spin" style={{ border: "1.5px solid var(--text-faint)", borderTopColor: "transparent" }} />
-                : savedOk
-                  ? <CheckCircle2 className="w-3 h-3" />
-                  : <Save className="w-3 h-3" />}
+                : savedOk ? <CheckCircle2 className="w-3 h-3" /> : <Save className="w-3 h-3" />}
               {saving ? "Saving…" : savedOk ? "Saved" : "Save"}
             </button>
-
-            {/* Save As — the divider + folder icon */}
             <button
               onClick={handleSaveAs}
               disabled={saving}
@@ -652,29 +647,29 @@ export function AppLayout() {
           </div>
         )}
 
-        {headerLabel && (
-          <span className="text-[11px] ml-2 truncate max-w-[200px]" style={{ color: hasAIResult ? "var(--accent)" : "var(--text-faint)" }}>
-            — {headerLabel}
-          </span>
-        )}
-
-        {/* Dynamic score + rows (updates per version) */}
-        {displayScore !== null && (
-          <div className="flex items-center gap-2 ml-2 mr-3">
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border"
-                 style={{ background: "var(--bg-sunken)", borderColor: "var(--border)" }}>
-              <div className="w-1.5 h-1.5 rounded-full transition-colors duration-500"
-                   style={{ background: displayScore >= 80 ? "var(--success)" : displayScore >= 60 ? "var(--warning)" : "var(--danger)" }} />
-              <span className="text-[10px] font-bold transition-all duration-300"
-                    style={{ color: displayScore >= 80 ? "var(--success-dark)" : displayScore >= 60 ? "#b45309" : "var(--danger)" }}>
-                {displayScore}/100
-              </span>
+        {/* Project name + dataset & version count */}
+        {projectName && (
+          <div className="flex items-center gap-2 ml-3">
+            <span className="text-[12px] font-semibold truncate max-w-[160px]"
+              style={{ color: "var(--text-primary)" }}>
+              {projectName}
+            </span>
+            <div className="flex items-center gap-1.5">
+              {loadedDatasets.length > 0 && (
+                <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border"
+                  style={{ background: "var(--bg-sunken)", borderColor: "var(--border)", color: "var(--text-faint)" }}>
+                  <Layers className="w-2.5 h-2.5" />
+                  {loadedDatasets.length} dataset{loadedDatasets.length !== 1 ? "s" : ""}
+                </span>
+              )}
+              {versions.length > 0 && (
+                <span className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border"
+                  style={{ background: "var(--bg-sunken)", borderColor: "var(--border)", color: "var(--text-faint)" }}>
+                  <GitBranch className="w-2.5 h-2.5" />
+                  {versions.length} version{versions.length !== 1 ? "s" : ""}
+                </span>
+              )}
             </div>
-            {displayRows !== null && (
-              <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>
-                {displayRows.toLocaleString()} rows × {displayCols} cols
-              </span>
-            )}
           </div>
         )}
 
@@ -733,7 +728,6 @@ export function AppLayout() {
           </button>
         )}
 
-        
       </header>
 
       {/* ── Save As modal (fallback for non-Tauri env) ── */}
@@ -1154,6 +1148,80 @@ export function AppLayout() {
       </div>
 
       {showDB && <DatabaseModal onClose={() => setShowDB(false)} />}
+
+      {/* ── Footer ── */}
+      {(datasetName || displayScore !== null) && (
+        <footer
+          className="flex items-center px-4 h-6 shrink-0 border-t gap-4 select-none"
+          style={{ borderColor: "var(--border)", background: "var(--bg-sunken)" }}
+        >
+          {/* Dataset name */}
+          {datasetName && (
+            <span className="flex items-center gap-1.5 text-[10px]" style={{ color: "var(--text-faint)" }}>
+              <Layers className="w-2.5 h-2.5 shrink-0" />
+              <span className="font-mono truncate max-w-[200px]">{datasetName}</span>
+            </span>
+          )}
+
+          {/* Separator */}
+          {datasetName && displayScore !== null && (
+            <div className="w-px h-3 shrink-0" style={{ background: "var(--border-strong)" }} />
+          )}
+
+          {/* Quality score */}
+          {displayScore !== null && (
+            <span className="flex items-center gap-1.5 text-[10px]">
+              <div
+                className="w-1.5 h-1.5 rounded-full shrink-0"
+                style={{
+                  background: displayScore >= 80 ? "var(--success)"
+                            : displayScore >= 60 ? "var(--warning)"
+                            : "var(--danger)",
+                }}
+              />
+              <span
+                className="font-bold tabular-nums"
+                style={{
+                  color: displayScore >= 80 ? "var(--success-dark)"
+                       : displayScore >= 60 ? "#b45309"
+                       : "var(--danger)",
+                }}
+              >
+                {displayScore}/100
+              </span>
+            </span>
+          )}
+
+          {/* Rows × cols */}
+          {displayRows !== null && (
+            <>
+              <div className="w-px h-3 shrink-0" style={{ background: "var(--border-strong)" }} />
+              <span className="text-[10px] font-mono tabular-nums" style={{ color: "var(--text-faint)" }}>
+                {displayRows.toLocaleString()} rows × {displayCols} cols
+              </span>
+            </>
+          )}
+
+          {/* Active version label */}
+          {hasAIResult && activeVersion && (
+            <>
+              <div className="w-px h-3 shrink-0" style={{ background: "var(--border-strong)" }} />
+              <span className="text-[10px] truncate max-w-[160px]" style={{ color: "var(--accent)" }}>
+                {activeVersion.label}
+              </span>
+            </>
+          )}
+
+          <div className="flex-1" />
+
+          {/* Right: version count hint */}
+          {versions.length > 0 && (
+            <span className="text-[10px]" style={{ color: "var(--text-ghost)" }}>
+              v{versions.length}
+            </span>
+          )}
+        </footer>
+      )}
     </div>
   );
 }
