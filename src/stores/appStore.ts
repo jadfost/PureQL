@@ -43,6 +43,10 @@ interface AppState {
   hasProject: boolean;
   setHasProject: (v: boolean) => void;
 
+  // Tracks the project the user navigated away from, so ProjectHub can offer "Resume"
+  previousProject: { name: string; path: string | null } | null;
+  setPreviousProject: (p: { name: string; path: string | null } | null) => void;
+
   activeModelInfo: ActiveModelInfo | null;
   setActiveModelInfo: (m: ActiveModelInfo | null) => void;
 
@@ -105,6 +109,9 @@ export const useAppStore = create<AppState>((set) => ({
   setProjectCreatedAt: (t) => set({ projectCreatedAt: t }),
   hasProject: false,
   setHasProject: (v) => set({ hasProject: v }),
+
+  previousProject: null,
+  setPreviousProject: (p) => set({ previousProject: p }),
 
   activeModelInfo: {
     displayName: "Qwen 2.5 7B",

@@ -12,6 +12,45 @@ import {
 import { useAppStore } from "../../stores/appStore";
 import type { ProfileData, VersionData } from "../../lib/api";
 
+// ── Resume banner ─────────────────────────────────────────────────────────────
+
+function ResumeBanner({ name, onResume }: { name: string; onResume: () => void }) {
+  const [hovered, setHovered] = useState(false);
+  return (
+    <button
+      onClick={onResume}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl mb-3 transition-all duration-150"
+      style={{
+        background: hovered ? "var(--bg-raised)" : "var(--bg-sunken)",
+        border: `1px solid ${hovered ? "var(--accent-border)" : "var(--border-strong)"}`,
+        boxShadow: hovered ? "0 0 0 3px rgba(14,165,233,0.07)" : "none",
+      }}
+    >
+      {/* Pulsing dot */}
+      <div className="relative shrink-0">
+        <div className="w-2.5 h-2.5 rounded-full" style={{ background: "var(--accent)" }} />
+        <div className="absolute inset-0 rounded-full animate-ping opacity-40" style={{ background: "var(--accent)" }} />
+      </div>
+
+      <div className="flex-1 text-left min-w-0">
+        <div className="text-xs font-semibold" style={{ color: "var(--text-secondary)" }}>
+          Resume current project
+        </div>
+        <div className="text-[11px] truncate" style={{ color: "var(--text-ghost)" }}>
+          {name}
+        </div>
+      </div>
+
+      <ChevronRight
+        className="w-4 h-4 shrink-0 transition-transform duration-150"
+        style={{ color: "var(--text-faint)", transform: hovered ? "translateX(2px)" : "none" }}
+      />
+    </button>
+  );
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -312,6 +351,8 @@ function HubScreen({
   recents,
   loading,
   error,
+  previousProject,
+  onResume,
   onNewProject,
   onOpenRecent,
   onRemoveRecent,
@@ -320,6 +361,8 @@ function HubScreen({
   recents: RecentProject[];
   loading: boolean;
   error: string | null;
+  previousProject: { name: string; path: string | null } | null;
+  onResume: () => void;
   onNewProject: () => void;
   onOpenRecent: (p: RecentProject) => void;
   onRemoveRecent: (p: RecentProject) => void;
@@ -340,6 +383,11 @@ function HubScreen({
           <p className="text-xs" style={{ color: "var(--text-ghost)" }}>Pure data. Pure queries. Pure local.</p>
         </div>
       </div>
+
+      {/* Resume current project — shown when coming back from an active session */}
+      {previousProject && (
+        <ResumeBanner name={previousProject.name} onResume={onResume} />
+      )}
 
       {/* Primary action */}
       <button
@@ -411,7 +459,10 @@ function HubScreen({
 // ── Root component ────────────────────────────────────────────────────────────
 
 export function ProjectHub({ onOpenApp }: Props) {
-  const { setProjectName, setProjectPath, setProjectCreatedAt, setHasProject } = useAppStore();
+  const {
+    setProjectName, setProjectPath, setProjectCreatedAt,
+    setHasProject, previousProject, setPreviousProject,
+  } = useAppStore();
   const [screen, setScreen] = useState<Screen>("hub");
   const [loadingLabel, setLoadingLabel] = useState("Loading project…");
   const [recents, setRecents] = useState<RecentProject[]>([]);
@@ -426,6 +477,12 @@ export function ProjectHub({ onOpenApp }: Props) {
       .catch(() => { setRecentsError("Could not load recent projects."); setRecentsLoading(false); });
   }, []);
 
+  const handleResume = () => {
+    // Simply go back into the app — state is already in the store
+    setPreviousProject(null);
+    setHasProject(true);
+  };
+
   const handleNewProject = () => setScreen("new");
 
   const handleConfirmNew = async (name: string) => {
@@ -437,6 +494,7 @@ export function ProjectHub({ onOpenApp }: Props) {
       setProjectName(name);
       setProjectPath(null);
       setProjectCreatedAt(createdAt);
+      setPreviousProject(null);  // clear resume banner when starting fresh
       setHasProject(true);
       onOpenApp({ name, path: "", createdAt });
     } catch (err) {
@@ -454,6 +512,7 @@ export function ProjectHub({ onOpenApp }: Props) {
       setProjectName(result.meta.name || project.name);
       setProjectPath(project.path);
       setProjectCreatedAt(result.meta.created_at);
+      setPreviousProject(null);  // clear resume banner
       setHasProject(true);
       onOpenApp({
         name: result.meta.name || project.name,
@@ -518,6 +577,8 @@ export function ProjectHub({ onOpenApp }: Props) {
             recents={recents}
             loading={recentsLoading}
             error={recentsError}
+            previousProject={previousProject}
+            onResume={handleResume}
             onNewProject={handleNewProject}
             onOpenRecent={handleOpenRecent}
             onRemoveRecent={handleRemoveRecent}

@@ -306,6 +306,7 @@ export function AppLayout() {
     hasAIResult, currentVersionId,
     projectName, projectPath, projectCreatedAt,
     messages,
+    setHasProject, setPreviousProject,
   } = useAppStore();
 
   // ── Panel state ──
@@ -320,6 +321,9 @@ export function AppLayout() {
   const [saveAsOpen, setSaveAsOpen] = useState(false);
   const [saveAsInput, setSaveAsInput] = useState("");
   const [saveAsError, setSaveAsError] = useState<string | null>(null);
+
+  // "Back to projects" confirmation modal
+  const [backModalOpen, setBackModalOpen] = useState(false);
 
   // ── Bottom panes ──
   const [bottomPanes, setBottomPanes] = useState<(0 | 1)[]>([]);
@@ -535,6 +539,17 @@ export function AppLayout() {
     }
   };
 
+  /** Navigate back to ProjectHub — called from the confirmation modal */
+  const handleGoBack = async (shouldSave: boolean) => {
+    setBackModalOpen(false);
+    if (shouldSave) {
+      await handleSave();
+    }
+    // Store current project so ProjectHub can show "Resume" option
+    setPreviousProject({ name: projectName || "Untitled", path: projectPath });
+    setHasProject(false);
+  };
+
   const handleQuickAdd = async () => {
     const input = document.createElement("input");
     input.type = "file"; input.multiple = true;
@@ -574,6 +589,19 @@ export function AppLayout() {
       {/* ── Header ── */}
       <header className="flex items-center px-3 h-10 shrink-0 border-b"
               style={{ borderColor: "var(--border)", background: "white", boxShadow: "var(--shadow-xs)" }}>
+        {/* Back to Projects */}
+        <button
+          onClick={() => setBackModalOpen(true)}
+          title="Back to Projects"
+          className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-lg border transition-all duration-150 mr-2 shrink-0"
+          style={{ borderColor: "var(--border)", color: "var(--text-ghost)", background: "transparent" }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--accent-border)"; e.currentTarget.style.color = "var(--accent)"; e.currentTarget.style.background = "var(--accent-subtle)"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-ghost)"; e.currentTarget.style.background = "transparent"; }}
+        >
+          <ChevronLeft className="w-3 h-3" />
+          Projects
+        </button>
+
         {/* Logo */}
         <div className="flex items-center gap-1.5 mr-3 select-none">
           <div className="w-6 h-6 rounded-lg flex items-center justify-center"
@@ -799,6 +827,91 @@ export function AppLayout() {
                   ? <><div className="w-3 h-3 rounded-full animate-spin mr-1.5" style={{ border: "1.5px solid white", borderTopColor: "transparent" }} />Saving…</>
                   : <><Save className="w-3.5 h-3.5" />Save here</>}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Back to Projects confirmation modal ── */}
+      {backModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.60)", backdropFilter: "blur(6px)" }}
+          onClick={e => { if (e.target === e.currentTarget) setBackModalOpen(false); }}
+        >
+          <div
+            className="w-full max-w-sm mx-4 rounded-2xl overflow-hidden shadow-2xl animate-fade-up"
+            style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+          >
+            {/* Top accent strip */}
+            <div className="h-1 w-full" style={{ background: "var(--gradient-accent)" }} />
+
+            <div className="p-6">
+              {/* Icon + title */}
+              <div className="flex items-start gap-3 mb-5">
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 mt-0.5"
+                  style={{ background: "var(--accent-muted)", border: "1px solid var(--accent-border)" }}>
+                  <ChevronLeft className="w-5 h-5" style={{ color: "var(--accent)" }} />
+                </div>
+                <div>
+                  <div className="text-sm font-bold mb-1" style={{ color: "var(--text-primary)" }}>
+                    Back to Projects?
+                  </div>
+                  <div className="text-xs leading-relaxed" style={{ color: "var(--text-faint)" }}>
+                    {projectName
+                      ? <>You're leaving <span style={{ color: "var(--text-secondary)", fontWeight: 600 }}>"{projectName}"</span>. Save your progress before going back?</>
+                      : "Do you want to save your progress before going back?"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Show current save path if known */}
+              {projectPath && (
+                <div
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl mb-5 text-[10px] font-mono truncate"
+                  style={{ background: "var(--bg-sunken)", border: "1px solid var(--border)", color: "var(--text-ghost)" }}
+                >
+                  <Save className="w-3 h-3 shrink-0" style={{ color: "var(--text-faint)" }} />
+                  <span className="truncate">{projectPath}</span>
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex flex-col gap-2">
+                {/* Save & leave — primary */}
+                <button
+                  onClick={() => handleGoBack(true)}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all duration-150"
+                  style={{ background: "var(--gradient-accent)", color: "white", boxShadow: "var(--accent-glow-sm)" }}
+                  onMouseEnter={e => { e.currentTarget.style.boxShadow = "var(--accent-glow-md)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.boxShadow = "var(--accent-glow-sm)"; e.currentTarget.style.transform = "none"; }}
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  Save & go back
+                </button>
+
+                {/* Leave without saving */}
+                <button
+                  onClick={() => handleGoBack(false)}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-medium transition-all duration-150"
+                  style={{ background: "var(--bg-raised)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = "rgba(239,68,68,0.3)"; e.currentTarget.style.color = "var(--danger)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-secondary)"; }}
+                >
+                  Leave without saving
+                </button>
+
+                {/* Cancel — stay */}
+                <button
+                  onClick={() => setBackModalOpen(false)}
+                  className="w-full py-2 text-xs transition-colors duration-150"
+                  style={{ color: "var(--text-ghost)" }}
+                  onMouseEnter={e => { e.currentTarget.style.color = "var(--text-faint)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.color = "var(--text-ghost)"; }}
+                >
+                  Cancel — stay here
+                </button>
+              </div>
             </div>
           </div>
         </div>
