@@ -589,19 +589,7 @@ export function AppLayout() {
       {/* ── Header ── */}
       <header className="flex items-center px-3 h-10 shrink-0 border-b"
               style={{ borderColor: "var(--border)", background: "white", boxShadow: "var(--shadow-xs)" }}>
-        {/* Back to Projects */}
-        <button
-          onClick={() => setBackModalOpen(true)}
-          title="Back to Projects"
-          className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-lg border transition-all duration-150 mr-2 shrink-0"
-          style={{ borderColor: "var(--border)", color: "var(--text-ghost)", background: "transparent" }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--accent-border)"; e.currentTarget.style.color = "var(--accent)"; e.currentTarget.style.background = "var(--accent-subtle)"; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-ghost)"; e.currentTarget.style.background = "transparent"; }}
-        >
-          <ChevronLeft className="w-3 h-3" />
-          Projects
-        </button>
-
+        
         {/* Logo */}
         <div className="flex items-center gap-1.5 mr-3 select-none">
           <div className="w-6 h-6 rounded-lg flex items-center justify-center"
@@ -610,87 +598,19 @@ export function AppLayout() {
           </div>
           <span className="text-[13px] font-bold tracking-tight" style={{ color: "var(--text-primary)" }}>PureQL</span>
         </div>
-
-        {/* Model pill */}
-        {activeModelInfo && (
-          <button onClick={() => handleIconClick("models")}
-            className="flex items-center gap-1.5 px-2 py-0.5 rounded-full border transition-all duration-150"
-            style={{ borderColor: "var(--border)", background: "var(--bg-sunken)" }}
-            onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--accent-border)")}
-            onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border)")}
-          >
-            <Zap className="w-2.5 h-2.5" style={{ color: activeModelInfo.type === "local" ? "var(--success)" : "var(--warning)" }} />
-            <span className="text-[10px] font-medium" style={{ color: "var(--text-muted)" }}>
-              {activeModelInfo.type === "api" && activeModelInfo.provider
-                ? `${activeModelInfo.provider} · ${activeModelInfo.displayName}`
-                : activeModelInfo.displayName}
-            </span>
-            <span className="text-[9px] px-1 rounded-full font-bold"
-                  style={{
-                    background: activeModelInfo.type === "local" ? "rgba(16,185,129,.12)" : "rgba(245,158,11,.12)",
-                    color: activeModelInfo.type === "local" ? "var(--success)" : "var(--warning)"
-                  }}>
-              {activeModelInfo.type === "local" ? "local" : "cloud"}
-            </span>
-          </button>
-        )}
-
-        {headerLabel && (
-          <span className="text-[11px] ml-2 truncate max-w-[200px]" style={{ color: hasAIResult ? "var(--accent)" : "var(--text-faint)" }}>
-            — {headerLabel}
-          </span>
-        )}
-
-        <div className="flex-1" />
-
-        {/* Dynamic score + rows (updates per version) */}
-        {displayScore !== null && (
-          <div className="flex items-center gap-2 mr-3">
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border"
-                 style={{ background: "var(--bg-sunken)", borderColor: "var(--border)" }}>
-              <div className="w-1.5 h-1.5 rounded-full transition-colors duration-500"
-                   style={{ background: displayScore >= 80 ? "var(--success)" : displayScore >= 60 ? "var(--warning)" : "var(--danger)" }} />
-              <span className="text-[10px] font-bold transition-all duration-300"
-                    style={{ color: displayScore >= 80 ? "var(--success-dark)" : displayScore >= 60 ? "#b45309" : "var(--danger)" }}>
-                {displayScore}/100
-              </span>
-            </div>
-            {displayRows !== null && (
-              <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>
-                {displayRows.toLocaleString()} rows × {displayCols} cols
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* + Dataset */}
-        {datasetName && (
-          <button onClick={handleQuickAdd} disabled={addingFile}
-            className="flex items-center gap-1 text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-all duration-150 mr-1.5"
-            style={{ borderColor: "var(--accent-border)", color: "var(--accent)", background: "var(--accent-subtle)" }}
-            onMouseEnter={e => (e.currentTarget.style.background = "var(--accent-muted)")}
-            onMouseLeave={e => (e.currentTarget.style.background = "var(--accent-subtle)")}
-          >
-            {addingFile
-              ? <div className="w-3 h-3 rounded-full animate-spin" style={{ border: "1.5px solid var(--accent)", borderTopColor: "transparent" }} />
-              : <Plus className="w-3 h-3" />}
-            Dataset
-          </button>
-        )}
-
-        {/* Preview panes toggle */}
-        {loadedDatasets.length > 0 && (
-          <button onClick={showBottom ? () => setBottomPanes([]) : addBottomPane}
-            className="flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-lg border transition-all duration-150"
-            style={{
-              borderColor: showBottom ? "var(--accent-border)" : "var(--border)",
-              color:       showBottom ? "var(--accent)"         : "var(--text-faint)",
-              background:  showBottom ? "var(--accent-subtle)"  : "transparent",
-            }}>
-            <SplitSquareVertical className="w-3.5 h-3.5" />
-            {showBottom ? "Hide preview" : "Dataset preview"}
-          </button>
-        )}
+        
+        {/* Back to Projects */}
+        <button
+          onClick={() => setBackModalOpen(true)}
+          title="Back to Projects"
+          className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-lg border transition-all duration-150 shrink-0"
+          style={{ borderColor: "var(--border)", color: "var(--text-ghost)", background: "transparent" }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = "var(--accent-border)"; e.currentTarget.style.color = "var(--accent)"; e.currentTarget.style.background = "var(--accent-subtle)"; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = "var(--border)"; e.currentTarget.style.color = "var(--text-ghost)"; e.currentTarget.style.background = "transparent"; }}
+        >
+          <ChevronLeft className="w-3 h-3" />
+          Projects
+        </button>
 
         {/* Save + Save As */}
         {projectName && (
@@ -731,6 +651,89 @@ export function AppLayout() {
             </button>
           </div>
         )}
+
+        {headerLabel && (
+          <span className="text-[11px] ml-2 truncate max-w-[200px]" style={{ color: hasAIResult ? "var(--accent)" : "var(--text-faint)" }}>
+            — {headerLabel}
+          </span>
+        )}
+
+        {/* Dynamic score + rows (updates per version) */}
+        {displayScore !== null && (
+          <div className="flex items-center gap-2 ml-2 mr-3">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border"
+                 style={{ background: "var(--bg-sunken)", borderColor: "var(--border)" }}>
+              <div className="w-1.5 h-1.5 rounded-full transition-colors duration-500"
+                   style={{ background: displayScore >= 80 ? "var(--success)" : displayScore >= 60 ? "var(--warning)" : "var(--danger)" }} />
+              <span className="text-[10px] font-bold transition-all duration-300"
+                    style={{ color: displayScore >= 80 ? "var(--success-dark)" : displayScore >= 60 ? "#b45309" : "var(--danger)" }}>
+                {displayScore}/100
+              </span>
+            </div>
+            {displayRows !== null && (
+              <span className="text-[10px]" style={{ color: "var(--text-faint)" }}>
+                {displayRows.toLocaleString()} rows × {displayCols} cols
+              </span>
+            )}
+          </div>
+        )}
+
+        <div className="flex-1" />
+
+        {/* Model pill */}
+        {activeModelInfo && (
+          <button onClick={() => handleIconClick("models")}
+            className="flex items-center gap-1.5 mr-1.5 px-2 py-1 rounded-full border transition-all duration-150"
+            style={{ borderColor: "var(--border)", background: "var(--bg-sunken)" }}
+            onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--accent-border)")}
+            onMouseLeave={e => (e.currentTarget.style.borderColor = "var(--border)")}
+          >
+            <Zap className="w-2.5 h-2.5" style={{ color: activeModelInfo.type === "local" ? "var(--success)" : "var(--warning)" }} />
+            <span className="text-[10px] font-medium" style={{ color: "var(--text-muted)" }}>
+              {activeModelInfo.type === "api" && activeModelInfo.provider
+                ? `${activeModelInfo.provider} · ${activeModelInfo.displayName}`
+                : activeModelInfo.displayName}
+            </span>
+            <span className="text-[9px] px-1 rounded-full font-bold"
+                  style={{
+                    background: activeModelInfo.type === "local" ? "rgba(16,185,129,.12)" : "rgba(245,158,11,.12)",
+                    color: activeModelInfo.type === "local" ? "var(--success)" : "var(--warning)"
+                  }}>
+              {activeModelInfo.type === "local" ? "local" : "cloud"}
+            </span>
+          </button>
+        )}
+
+        {/* + Dataset */}
+        {datasetName && (
+          <button onClick={handleQuickAdd} disabled={addingFile}
+            className="flex items-center gap-1 text-[10px] font-medium px-2.5 py-1 rounded-lg border transition-all duration-150 mr-1.5"
+            style={{ borderColor: "var(--accent-border)", color: "var(--accent)", background: "var(--accent-subtle)" }}
+            onMouseEnter={e => (e.currentTarget.style.background = "var(--accent-muted)")}
+            onMouseLeave={e => (e.currentTarget.style.background = "var(--accent-subtle)")}
+          >
+            {addingFile
+              ? <div className="w-3 h-3 rounded-full animate-spin" style={{ border: "1.5px solid var(--accent)", borderTopColor: "transparent" }} />
+              : <Plus className="w-3 h-3" />}
+            Dataset
+          </button>
+        )}
+
+        {/* Preview panes toggle */}
+        {loadedDatasets.length > 0 && (
+          <button onClick={showBottom ? () => setBottomPanes([]) : addBottomPane}
+            className="flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-lg border transition-all duration-150"
+            style={{
+              borderColor: showBottom ? "var(--accent-border)" : "var(--border)",
+              color:       showBottom ? "var(--accent)"         : "var(--text-faint)",
+              background:  showBottom ? "var(--accent-subtle)"  : "transparent",
+            }}>
+            <SplitSquareVertical className="w-3.5 h-3.5" />
+            {showBottom ? "Hide preview" : "Dataset preview"}
+          </button>
+        )}
+
+        
       </header>
 
       {/* ── Save As modal (fallback for non-Tauri env) ── */}
