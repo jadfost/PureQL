@@ -742,7 +742,7 @@ export function AppLayout() {
         >
           <div
             className="w-full max-w-md mx-4 rounded-2xl p-6 shadow-2xl"
-            style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+            style={{ background: "var(--bg-raised)", border: "1px solid var(--border)" }}
           >
             {/* Header */}
             <div className="flex items-center justify-between mb-5">
@@ -841,7 +841,7 @@ export function AppLayout() {
         >
           <div
             className="w-full max-w-sm mx-4 rounded-2xl overflow-hidden shadow-2xl animate-fade-up"
-            style={{ background: "var(--bg-card)", border: "1px solid var(--border)" }}
+            style={{ background: "var(--bg-raised)", border: "1px solid var(--border)" }}
           >
             {/* Top accent strip */}
             <div className="h-1 w-full" style={{ background: "var(--gradient-accent)" }} />
