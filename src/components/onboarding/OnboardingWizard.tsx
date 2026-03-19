@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppStore } from "../../stores/appStore";
-import { detectHardware, getOllamaStatus, startOllama, installOllama, updateSettings } from "../../lib/api";
+import { detectHardware, getOllamaStatus, startOllama, installOllama, getInstallProgress, updateSettings } from "../../lib/api";
 import type { HardwareData, ModelData } from "../../lib/api";
 import {
   Hexagon, ChevronLeft, ArrowRight, Sparkles,
@@ -212,7 +212,7 @@ function HardwareStep({ hardware, loading }: { hardware: HardwareData | null; lo
 
 function OllamaStep({
   installed, running, loading, starting, startError, onRetry,
-  installing, installProgress, installError, onInstall,
+  installing, installProgress, installPct, installPhase, installError, onInstall,
 }: {
   installed: boolean;
   running: boolean;
@@ -222,6 +222,8 @@ function OllamaStep({
   onRetry: () => void;
   installing: boolean;
   installProgress: string | null;
+  installPct: number;
+  installPhase: string;
   installError: string | null;
   onInstall: () => void;
 }) {
@@ -310,18 +312,49 @@ function OllamaStep({
         </div>
       )}
 
-      {/* Install in progress */}
+      {/* Install in progress — progress bar */}
       {installing && !installError && (
-        <div className="mt-3 p-3 rounded-xl"
-          style={{ background: "rgba(14,165,233,0.06)", border: "1px solid rgba(14,165,233,0.18)" }}>
-          <div className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 rounded-full animate-pulse shrink-0" style={{ background: "var(--accent)" }} />
-            <p className="text-xs" style={{ color: "var(--accent)" }}>
-              {installProgress ?? "Installing Ollama…"}
-            </p>
+        <div className="mt-4 w-full space-y-2">
+          {/* Label row */}
+          <div className="flex items-center justify-between px-0.5">
+            <div className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full animate-pulse shrink-0" style={{ background: "var(--accent)" }} />
+              <span className="text-xs font-medium" style={{ color: "var(--accent)" }}>
+                {installProgress ?? "Installing Ollama…"}
+              </span>
+            </div>
+            <span className="text-xs font-mono font-bold tabular-nums"
+              style={{ color: installPhase === "done" ? "var(--success)" : "var(--accent)" }}>
+              {installPct}%
+            </span>
           </div>
-          <p className="text-[10px] mt-1.5" style={{ color: "var(--text-ghost)" }}>
-            This may take a moment. PureQL will continue automatically once ready.
+
+          {/* Bar */}
+          <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--bg-sunken)" }}>
+            {installPhase === "waiting" ? (
+              /* Indeterminate shimmer while waiting for Ollama process */
+              <div className="h-full rounded-full"
+                style={{
+                  width: "40%",
+                  background: "linear-gradient(90deg, transparent, var(--accent), transparent)",
+                  animation: "shimmer 1.4s ease-in-out infinite",
+                }}
+              />
+            ) : (
+              <div className="h-full rounded-full transition-all duration-500 ease-out"
+                style={{
+                  width: `${installPct}%`,
+                  background: installPhase === "done" ? "var(--gradient-success)" : "var(--gradient-accent)",
+                  boxShadow: installPhase === "done"
+                    ? "0 0 8px rgba(16,185,129,0.5)"
+                    : "0 0 8px rgba(14,165,233,0.4)",
+                }}
+              />
+            )}
+          </div>
+
+          <p className="text-[10px] text-center" style={{ color: "var(--text-ghost)" }}>
+            PureQL will continue automatically once ready
           </p>
         </div>
       )}
@@ -603,6 +636,8 @@ export function OnboardingWizard({ onComplete }: Props) {
   const [ollamaStartError, setOllamaStartError] = useState<string | null>(null);
   const [ollamaInstalling, setOllamaInstalling]     = useState(false);
   const [installProgress, setInstallProgress]       = useState<string | null>(null);
+  const [installPct, setInstallPct]                 = useState(0);
+  const [installPhase, setInstallPhase]             = useState<string>("idle");
   const [installError, setInstallError]             = useState<string | null>(null);
   const [selectedModel, setSelectedModel]     = useState<string | null>(null);
   const [needsDownload, setNeedsDownload]     = useState(true);
@@ -682,41 +717,73 @@ export function OnboardingWizard({ onComplete }: Props) {
       });
   }, [step]);
 
-  /* Poll for Ollama after one-click install */
+  /* Poll progress + Ollama status after one-click install */
   useEffect(() => {
     if (!ollamaInstalling || currentStepDef?.id !== "ollama") return;
 
-    const interval = setInterval(async () => {
-      try {
-        const res = await getOllamaStatus();
-        setOllamaInstalled(res.installed);
-        setOllamaRunning(res.running);
+    const PHASE_LABELS: Record<string, string> = {
+      starting:    "Starting download…",
+      downloading: "Downloading Ollama…",
+      installing:  "Installing Ollama…",
+      waiting:     "Waiting for Ollama to start…",
+      done:        "Ollama is ready!",
+    };
 
-        if (res.installed) {
+    let tick = 0;
+    const interval = setInterval(async () => {
+      tick++;
+      try {
+        // Poll install progress on every tick for smooth bar updates
+        const prog = await getInstallProgress();
+        setInstallPhase(prog.phase);
+        setInstallPct(prog.pct);
+        setInstallProgress(PHASE_LABELS[prog.phase] ?? "Installing…");
+
+        if (prog.phase === "error" && prog.error) {
           clearInterval(interval);
+          setInstallError(prog.error);
           setOllamaInstalling(false);
           setInstallProgress(null);
+          setInstallPct(0);
+          return;
+        }
 
-          if (!res.running) {
-            setOllamaStarting(true);
-            try {
-              const startRes = await startOllama();
-              setOllamaRunning(startRes.running);
-              if (!startRes.running && startRes.error) {
-                setOllamaStartError(startRes.error);
+        // Check Ollama status every ~2s (every 4 ticks at 500ms)
+        if (tick % 4 === 0 || prog.phase === "done" || prog.phase === "waiting") {
+          const res = await getOllamaStatus();
+          setOllamaInstalled(res.installed);
+          setOllamaRunning(res.running);
+
+          if (res.installed) {
+            clearInterval(interval);
+            setInstallPct(100);
+            setInstallProgress("Ollama is ready!");
+            await new Promise(r => setTimeout(r, 600));
+            setOllamaInstalling(false);
+            setInstallProgress(null);
+            setInstallPct(0);
+
+            if (!res.running) {
+              setOllamaStarting(true);
+              try {
+                const startRes = await startOllama();
+                setOllamaRunning(startRes.running);
+                if (!startRes.running && startRes.error) {
+                  setOllamaStartError(startRes.error);
+                }
+              } catch {
+                setOllamaStartError("Could not start Ollama. Please run 'ollama serve' manually.");
+              } finally {
+                setOllamaStarting(false);
               }
-            } catch {
-              setOllamaStartError("Could not start Ollama. Please run 'ollama serve' manually.");
-            } finally {
-              setOllamaStarting(false);
             }
+            setTimeout(() => setStep(s => s + 1), 1200);
           }
-          setTimeout(() => setStep(s => s + 1), 1200);
         }
       } catch {
         // ignore poll errors
       }
-    }, 2000);
+    }, 500);
 
     return () => clearInterval(interval);
   }, [ollamaInstalling, currentStepDef?.id]);
@@ -833,7 +900,7 @@ export function OnboardingWizard({ onComplete }: Props) {
         <div key={`body-${step}`} className="w-full flex flex-col items-center">
           {currentStepDef?.id === "welcome"  && <WelcomeStep />}
           {currentStepDef?.id === "hardware" && <HardwareStep hardware={hardware} loading={loading} />}
-          {currentStepDef?.id === "ollama"   && <OllamaStep installed={ollamaInstalled} running={ollamaRunning} loading={loading} starting={ollamaStarting} startError={ollamaStartError} onRetry={handleRetryStart} installing={ollamaInstalling} installProgress={installProgress} installError={installError} onInstall={handleInstallOllama} />}
+          {currentStepDef?.id === "ollama"   && <OllamaStep installed={ollamaInstalled} running={ollamaRunning} loading={loading} starting={ollamaStarting} startError={ollamaStartError} onRetry={handleRetryStart} installing={ollamaInstalling} installProgress={installProgress} installPct={installPct} installPhase={installPhase} installError={installError} onInstall={handleInstallOllama} />}
           {currentStepDef?.id === "model"    && <ModelStep models={models} selected={selectedModel} onSelect={handleModelSelect} />}
           {currentStepDef?.id === "download" && (
             <DownloadStep modelName={selectedModel ?? DEFAULT_MODEL} onDone={handleNext} />

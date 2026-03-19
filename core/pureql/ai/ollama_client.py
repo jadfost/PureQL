@@ -266,19 +266,27 @@ def start_ollama() -> bool:
         return False
 
 
-def install_ollama() -> dict:
+def install_ollama(on_progress=None) -> dict:
     """Download and install Ollama for the current platform.
 
     On Windows: downloads OllamaSetup.exe and runs the NSIS silent installer.
     On macOS:   downloads Ollama-darwin.zip, extracts to /Applications, and launches the app.
     On Linux:   runs the official curl install script.
 
+    Args:
+        on_progress: Optional callback(phase: str, pct: int).
+                     phase is "downloading" or "installing"; pct is 0-100 within that phase.
+
     Returns a dict with keys: success (bool), message (str, optional), error (str, optional).
-    The install runs in the background; callers should poll is_ollama_installed() to confirm.
+    Designed to be called from a background thread.
     """
     import tempfile
     import zipfile
     from urllib.request import urlretrieve
+
+    def report(phase: str, pct: int) -> None:
+        if on_progress:
+            on_progress(phase, pct)
 
     os_name = platform.system()
 
@@ -287,9 +295,17 @@ def install_ollama() -> dict:
         try:
             with tempfile.NamedTemporaryFile(suffix=".exe", delete=False) as f:
                 tmp_path = f.name
-            urlretrieve(url, tmp_path)
-            # /S = NSIS silent install; runs in background so we can poll
+
+            def _hook(blocknum: int, blocksize: int, totalsize: int) -> None:
+                if totalsize > 0:
+                    pct = min(79, int(blocknum * blocksize / totalsize * 79))
+                    report("downloading", pct)
+
+            report("downloading", 0)
+            urlretrieve(url, tmp_path, reporthook=_hook)
+            report("installing", 80)
             subprocess.Popen([tmp_path, "/S"])
+            report("installing", 90)
             return {"success": True, "message": "Installing Ollama — please wait…"}
         except Exception as exc:
             return {"success": False, "error": str(exc)}
@@ -299,15 +315,23 @@ def install_ollama() -> dict:
         try:
             with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as f:
                 tmp_path = f.name
-            urlretrieve(url, tmp_path)
+
+            def _hook(blocknum: int, blocksize: int, totalsize: int) -> None:
+                if totalsize > 0:
+                    pct = min(74, int(blocknum * blocksize / totalsize * 74))
+                    report("downloading", pct)
+
+            report("downloading", 0)
+            urlretrieve(url, tmp_path, reporthook=_hook)
+            report("installing", 75)
             with zipfile.ZipFile(tmp_path) as z:
                 z.extractall("/Applications")
-            # Remove quarantine flag so macOS doesn't block the app
+            report("installing", 85)
             subprocess.run(
                 ["xattr", "-rd", "com.apple.quarantine", "/Applications/Ollama.app"],
                 capture_output=True,
             )
-            # Launch the app; it will install the CLI and start the server
+            report("installing", 90)
             subprocess.Popen(["open", "-a", "Ollama"])
             return {"success": True, "message": "Ollama installed — starting up…"}
         except Exception as exc:
@@ -315,6 +339,7 @@ def install_ollama() -> dict:
 
     elif os_name == "Linux":
         try:
+            report("downloading", 10)
             result = subprocess.run(
                 "curl -fsSL https://ollama.com/install.sh | sh",
                 shell=True,
@@ -323,6 +348,7 @@ def install_ollama() -> dict:
                 timeout=180,
             )
             if result.returncode == 0:
+                report("installing", 90)
                 return {"success": True, "message": "Ollama installed — starting up…"}
             err = (result.stderr or "").strip()[:300]
             return {"success": False, "error": err or "Install script failed"}

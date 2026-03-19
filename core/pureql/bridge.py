@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sys
+import threading
 import traceback
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from typing import Optional
@@ -504,6 +505,33 @@ def _sql_value(v) -> str:
     return str(v)
 
 
+# ── Ollama install progress (shared across requests) ──
+
+_install_progress: dict = {"phase": "idle", "pct": 0, "done": False, "error": None}
+_install_lock = threading.Lock()
+
+
+def _run_ollama_install() -> None:
+    """Background thread: download + install Ollama, updating _install_progress."""
+    global _install_progress
+
+    def on_progress(phase: str, pct: int) -> None:
+        with _install_lock:
+            _install_progress["phase"] = phase
+            _install_progress["pct"] = pct
+
+    result = install_ollama(on_progress=on_progress)
+
+    with _install_lock:
+        if result["success"]:
+            _install_progress["phase"] = "waiting"
+            _install_progress["pct"] = 95
+        else:
+            _install_progress["phase"] = "error"
+            _install_progress["pct"] = 0
+            _install_progress["error"] = result.get("error", "Unknown error")
+
+
 # ── HTTP Handler ──
 
 class PureQLHandler(BaseHTTPRequestHandler):
@@ -559,6 +587,8 @@ class PureQLHandler(BaseHTTPRequestHandler):
                 self._handle_ollama_start()
             elif path == "/ollama/install":
                 self._handle_ollama_install()
+            elif path == "/ollama/install/progress":
+                self._handle_ollama_install_progress()
             elif path == "/ollama/models":
                 self._handle_ollama_models()
             elif path == "/settings":
@@ -1188,15 +1218,30 @@ class PureQLHandler(BaseHTTPRequestHandler):
             })
 
     def _handle_ollama_install(self):
-        """Download and install Ollama for the current platform."""
+        """Start Ollama installation in a background thread and return immediately."""
+        global _install_progress
         if is_ollama_installed():
-            self._respond(200, {
-                "success": True,
-                "message": "Ollama is already installed.",
-            })
+            self._respond(200, {"success": True, "message": "Ollama is already installed."})
             return
-        result = install_ollama()
-        self._respond(200, result)
+        with _install_lock:
+            _install_progress = {"phase": "starting", "pct": 0, "done": False, "error": None}
+        t = threading.Thread(target=_run_ollama_install, daemon=True)
+        t.start()
+        self._respond(200, {"success": True, "message": "Installation started"})
+
+    def _handle_ollama_install_progress(self):
+        """Return current installation progress."""
+        global _install_progress
+        with _install_lock:
+            progress = dict(_install_progress)
+        # If Ollama became available, mark as fully done
+        if is_ollama_installed() and progress["phase"] not in ("error",):
+            with _install_lock:
+                _install_progress["phase"] = "done"
+                _install_progress["pct"] = 100
+                _install_progress["done"] = True
+            progress = dict(_install_progress)
+        self._respond(200, progress)
 
     def _handle_ollama_models(self):
         if is_ollama_running():

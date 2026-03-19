@@ -252,6 +252,15 @@ export async function installOllama(): Promise<{
   return request("/ollama/install", "POST");
 }
 
+export async function getInstallProgress(): Promise<{
+  phase: "idle" | "starting" | "downloading" | "installing" | "waiting" | "done" | "error";
+  pct: number;
+  done: boolean;
+  error: string | null;
+}> {
+  return request("/ollama/install/progress", "POST");
+}
+
 export async function updateSettings(settings: {
   model?: string;
   provider?: string;
