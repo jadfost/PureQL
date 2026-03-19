@@ -754,7 +754,9 @@ export function OnboardingWizard({ onComplete }: Props) {
           setOllamaInstalled(res.installed);
           setOllamaRunning(res.running);
 
-          if (res.installed) {
+          // Consider ready if installed OR already running
+          // (on Windows the bridge process may not see PATH updates, but running = good to go)
+          if (res.installed || res.running) {
             clearInterval(interval);
             setInstallPct(100);
             setInstallProgress("Ollama is ready!");

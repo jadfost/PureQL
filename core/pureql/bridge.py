@@ -1234,8 +1234,9 @@ class PureQLHandler(BaseHTTPRequestHandler):
         global _install_progress
         with _install_lock:
             progress = dict(_install_progress)
-        # If Ollama became available, mark as fully done
-        if is_ollama_installed() and progress["phase"] not in ("error",):
+        # If Ollama became available (installed or already running), mark as fully done.
+        # On Windows the bridge process may not see PATH updates, so check running too.
+        if (is_ollama_installed() or is_ollama_running()) and progress["phase"] not in ("error",):
             with _install_lock:
                 _install_progress["phase"] = "done"
                 _install_progress["pct"] = 100
