@@ -222,8 +222,38 @@ def get_recommended_models(hardware: HardwareInfo) -> list[dict]:
 
 
 def is_ollama_installed() -> bool:
-    """Check if Ollama is installed on the system."""
-    return shutil.which("ollama") is not None
+    """Check if Ollama is installed on the system.
+
+    Uses shutil.which first, then falls back to checking known install locations
+    per platform — necessary on Windows where PATH updates don't propagate to
+    already-running processes (e.g. the bridge started before Ollama was installed).
+    """
+    if shutil.which("ollama") is not None:
+        return True
+
+    if platform.system() == "Windows":
+        import os
+        candidates = [
+            # Default NSIS silent install location
+            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "Ollama", "ollama.exe"),
+            # Some builds install here
+            os.path.join(os.environ.get("ProgramFiles", ""), "Ollama", "ollama.exe"),
+            os.path.join(os.environ.get("ProgramFiles(x86)", ""), "Ollama", "ollama.exe"),
+        ]
+        if any(os.path.isfile(p) for p in candidates if p and p != os.sep):
+            return True
+
+    elif platform.system() == "Darwin":
+        import os
+        candidates = [
+            "/usr/local/bin/ollama",
+            "/opt/homebrew/bin/ollama",
+            os.path.expanduser("~/.ollama/ollama"),
+        ]
+        if any(os.path.isfile(p) for p in candidates):
+            return True
+
+    return False
 
 
 def is_ollama_running() -> bool:

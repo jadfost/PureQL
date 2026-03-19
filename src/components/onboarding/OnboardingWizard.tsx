@@ -686,12 +686,15 @@ export function OnboardingWizard({ onComplete }: Props) {
         setOllamaRunning(res.running);
         setLoading(false);
 
-        if (!res.installed) {
-          // Not installed — stay on this step and wait for user to install
+        if (!res.installed && !res.running) {
+          // Neither found nor running — stay and show the Install button
           return;
         }
 
-        if (res.installed && !res.running) {
+        if (res.running) {
+          // Already running (covers PATH-invisible installs on Windows) — advance
+          setTimeout(() => setStep(s => s + 1), 1500);
+        } else {
           // Installed but not running — try to start it automatically
           setOllamaStarting(true);
           try {
@@ -706,9 +709,6 @@ export function OnboardingWizard({ onComplete }: Props) {
             setOllamaStarting(false);
             setTimeout(() => setStep(s => s + 1), 1200);
           }
-        } else {
-          // Already running — advance after brief pause
-          setTimeout(() => setStep(s => s + 1), 1500);
         }
       })
       .catch(() => {
