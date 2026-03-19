@@ -244,6 +244,14 @@ export async function startOllama(): Promise<{
   return request("/ollama/start", "POST");
 }
 
+export async function installOllama(): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+}> {
+  return request("/ollama/install", "POST");
+}
+
 export async function updateSettings(settings: {
   model?: string;
   provider?: string;

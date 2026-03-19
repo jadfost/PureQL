@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppStore } from "../../stores/appStore";
-import { detectHardware, getOllamaStatus, startOllama, updateSettings } from "../../lib/api";
+import { detectHardware, getOllamaStatus, startOllama, installOllama, updateSettings } from "../../lib/api";
 import type { HardwareData, ModelData } from "../../lib/api";
 import {
   Hexagon, ChevronLeft, ArrowRight, Sparkles,
@@ -212,6 +212,7 @@ function HardwareStep({ hardware, loading }: { hardware: HardwareData | null; lo
 
 function OllamaStep({
   installed, running, loading, starting, startError, onRetry,
+  installing, installProgress, installError, onInstall,
 }: {
   installed: boolean;
   running: boolean;
@@ -219,10 +220,14 @@ function OllamaStep({
   starting: boolean;
   startError: string | null;
   onRetry: () => void;
+  installing: boolean;
+  installProgress: string | null;
+  installError: string | null;
+  onInstall: () => void;
 }) {
   const rows = [
-    { label: "Ollama binary", sublabel: "CLI tool",     ok: installed, pending: loading },
-    { label: "Local server",  sublabel: "ollama serve", ok: running,   pending: loading || starting },
+    { label: "Ollama binary", sublabel: "CLI tool",     ok: installed, pending: loading || (installing && !installed) },
+    { label: "Local server",  sublabel: "ollama serve", ok: running,   pending: loading || starting || (installing && !running) },
   ];
 
   return (
@@ -254,7 +259,7 @@ function OllamaStep({
             )}
             {pending && (
               <span className="text-xs" style={{ color: "var(--text-ghost)" }}>
-                {starting && i === 1 ? "Starting…" : "Checking…"}
+                {starting && i === 1 ? "Starting…" : installing ? "Installing…" : "Checking…"}
               </span>
             )}
           </div>
@@ -288,14 +293,49 @@ function OllamaStep({
         </div>
       )}
 
-      {!loading && !installed && (
-        <p className="mt-4 text-center text-xs leading-relaxed" style={{ color: "var(--text-faint)" }}>
-          Install from{" "}
-          <span style={{ color: "var(--accent)", textDecoration: "underline", textUnderlineOffset: 2, cursor: "pointer" }}>
-            ollama.com
-          </span>
-          {" "}or use a cloud API key in Settings.
-        </p>
+      {/* Install Ollama section — shown when not installed */}
+      {!loading && !installed && !installing && (
+        <div className="mt-4 flex flex-col items-center gap-3">
+          <button
+            onClick={onInstall}
+            className="btn-primary w-full justify-center"
+            style={{ background: "var(--gradient-accent)", boxShadow: "var(--accent-glow-sm)" }}
+          >
+            <Download className="w-4 h-4" />
+            Install Ollama
+          </button>
+          <p className="text-center text-xs leading-relaxed" style={{ color: "var(--text-ghost)" }}>
+            Free, open-source · runs 100% on your machine
+          </p>
+        </div>
+      )}
+
+      {/* Install in progress */}
+      {installing && !installError && (
+        <div className="mt-3 p-3 rounded-xl"
+          style={{ background: "rgba(14,165,233,0.06)", border: "1px solid rgba(14,165,233,0.18)" }}>
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 rounded-full animate-pulse shrink-0" style={{ background: "var(--accent)" }} />
+            <p className="text-xs" style={{ color: "var(--accent)" }}>
+              {installProgress ?? "Installing Ollama…"}
+            </p>
+          </div>
+          <p className="text-[10px] mt-1.5" style={{ color: "var(--text-ghost)" }}>
+            This may take a moment. PureQL will continue automatically once ready.
+          </p>
+        </div>
+      )}
+
+      {/* Install error */}
+      {installError && (
+        <div className="mt-3 p-3 rounded-xl"
+          style={{ background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.18)" }}>
+          <p className="text-xs mb-2" style={{ color: "var(--danger)" }}>{installError}</p>
+          <button onClick={onInstall} className="text-xs font-medium underline underline-offset-2"
+            style={{ color: "var(--accent)" }}>
+            Try again
+          </button>
+        </div>
       )}
     </div>
   );
@@ -561,6 +601,9 @@ export function OnboardingWizard({ onComplete }: Props) {
   const [ollamaRunning, setOllamaRunning]     = useState(false);
   const [ollamaStarting, setOllamaStarting]   = useState(false);
   const [ollamaStartError, setOllamaStartError] = useState<string | null>(null);
+  const [ollamaInstalling, setOllamaInstalling]     = useState(false);
+  const [installProgress, setInstallProgress]       = useState<string | null>(null);
+  const [installError, setInstallError]             = useState<string | null>(null);
   const [selectedModel, setSelectedModel]     = useState<string | null>(null);
   const [needsDownload, setNeedsDownload]     = useState(true);
   const [loading, setLoading]                 = useState(false);
@@ -608,6 +651,11 @@ export function OnboardingWizard({ onComplete }: Props) {
         setOllamaRunning(res.running);
         setLoading(false);
 
+        if (!res.installed) {
+          // Not installed — stay on this step and wait for user to install
+          return;
+        }
+
         if (res.installed && !res.running) {
           // Installed but not running — try to start it automatically
           setOllamaStarting(true);
@@ -624,15 +672,54 @@ export function OnboardingWizard({ onComplete }: Props) {
             setTimeout(() => setStep(s => s + 1), 1200);
           }
         } else {
-          // Already running or not installed — advance after brief pause
+          // Already running — advance after brief pause
           setTimeout(() => setStep(s => s + 1), 1500);
         }
       })
       .catch(() => {
         setLoading(false);
-        setTimeout(() => setStep(s => s + 1), 1000);
+        // Can't reach bridge — don't advance, let user retry
       });
   }, [step]);
+
+  /* Poll for Ollama after one-click install */
+  useEffect(() => {
+    if (!ollamaInstalling || currentStepDef?.id !== "ollama") return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await getOllamaStatus();
+        setOllamaInstalled(res.installed);
+        setOllamaRunning(res.running);
+
+        if (res.installed) {
+          clearInterval(interval);
+          setOllamaInstalling(false);
+          setInstallProgress(null);
+
+          if (!res.running) {
+            setOllamaStarting(true);
+            try {
+              const startRes = await startOllama();
+              setOllamaRunning(startRes.running);
+              if (!startRes.running && startRes.error) {
+                setOllamaStartError(startRes.error);
+              }
+            } catch {
+              setOllamaStartError("Could not start Ollama. Please run 'ollama serve' manually.");
+            } finally {
+              setOllamaStarting(false);
+            }
+          }
+          setTimeout(() => setStep(s => s + 1), 1200);
+        }
+      } catch {
+        // ignore poll errors
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [ollamaInstalling, currentStepDef?.id]);
 
   const handleRetryStart = async () => {
     setOllamaStartError(null);
@@ -646,6 +733,27 @@ export function OnboardingWizard({ onComplete }: Props) {
       setOllamaStartError("Could not start Ollama. Please run 'ollama serve' manually.");
     } finally {
       setOllamaStarting(false);
+    }
+  };
+
+  const handleInstallOllama = async () => {
+    setInstallError(null);
+    setInstallProgress("Downloading Ollama…");
+    setOllamaInstalling(true);
+    try {
+      const res = await installOllama();
+      if (!res.success) {
+        setInstallError(res.error ?? "Installation failed. Please visit ollama.com to install manually.");
+        setOllamaInstalling(false);
+        setInstallProgress(null);
+      } else {
+        setInstallProgress(res.message ?? "Waiting for Ollama to be ready…");
+        // Polling continues via the useEffect above
+      }
+    } catch {
+      setInstallError("Could not start installation. Please visit ollama.com to install manually.");
+      setOllamaInstalling(false);
+      setInstallProgress(null);
     }
   };
 
@@ -725,7 +833,7 @@ export function OnboardingWizard({ onComplete }: Props) {
         <div key={`body-${step}`} className="w-full flex flex-col items-center">
           {currentStepDef?.id === "welcome"  && <WelcomeStep />}
           {currentStepDef?.id === "hardware" && <HardwareStep hardware={hardware} loading={loading} />}
-          {currentStepDef?.id === "ollama"   && <OllamaStep installed={ollamaInstalled} running={ollamaRunning} loading={loading} starting={ollamaStarting} startError={ollamaStartError} onRetry={handleRetryStart} />}
+          {currentStepDef?.id === "ollama"   && <OllamaStep installed={ollamaInstalled} running={ollamaRunning} loading={loading} starting={ollamaStarting} startError={ollamaStartError} onRetry={handleRetryStart} installing={ollamaInstalling} installProgress={installProgress} installError={installError} onInstall={handleInstallOllama} />}
           {currentStepDef?.id === "model"    && <ModelStep models={models} selected={selectedModel} onSelect={handleModelSelect} />}
           {currentStepDef?.id === "download" && (
             <DownloadStep modelName={selectedModel ?? DEFAULT_MODEL} onDone={handleNext} />

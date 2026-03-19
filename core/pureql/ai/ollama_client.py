@@ -266,6 +266,75 @@ def start_ollama() -> bool:
         return False
 
 
+def install_ollama() -> dict:
+    """Download and install Ollama for the current platform.
+
+    On Windows: downloads OllamaSetup.exe and runs the NSIS silent installer.
+    On macOS:   downloads Ollama-darwin.zip, extracts to /Applications, and launches the app.
+    On Linux:   runs the official curl install script.
+
+    Returns a dict with keys: success (bool), message (str, optional), error (str, optional).
+    The install runs in the background; callers should poll is_ollama_installed() to confirm.
+    """
+    import tempfile
+    import zipfile
+    from urllib.request import urlretrieve
+
+    os_name = platform.system()
+
+    if os_name == "Windows":
+        url = "https://ollama.com/download/OllamaSetup.exe"
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".exe", delete=False) as f:
+                tmp_path = f.name
+            urlretrieve(url, tmp_path)
+            # /S = NSIS silent install; runs in background so we can poll
+            subprocess.Popen([tmp_path, "/S"])
+            return {"success": True, "message": "Installing Ollama — please wait…"}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    elif os_name == "Darwin":
+        url = "https://ollama.com/download/Ollama-darwin.zip"
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as f:
+                tmp_path = f.name
+            urlretrieve(url, tmp_path)
+            with zipfile.ZipFile(tmp_path) as z:
+                z.extractall("/Applications")
+            # Remove quarantine flag so macOS doesn't block the app
+            subprocess.run(
+                ["xattr", "-rd", "com.apple.quarantine", "/Applications/Ollama.app"],
+                capture_output=True,
+            )
+            # Launch the app; it will install the CLI and start the server
+            subprocess.Popen(["open", "-a", "Ollama"])
+            return {"success": True, "message": "Ollama installed — starting up…"}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    elif os_name == "Linux":
+        try:
+            result = subprocess.run(
+                "curl -fsSL https://ollama.com/install.sh | sh",
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+            if result.returncode == 0:
+                return {"success": True, "message": "Ollama installed — starting up…"}
+            err = (result.stderr or "").strip()[:300]
+            return {"success": False, "error": err or "Install script failed"}
+        except subprocess.TimeoutExpired:
+            return {"success": False, "error": "Installation timed out"}
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+    else:
+        return {"success": False, "error": f"Unsupported platform: {os_name}"}
+
+
 def pull_model(model_name: str, on_progress=None) -> bool:
     """Download a model from Ollama registry.
 

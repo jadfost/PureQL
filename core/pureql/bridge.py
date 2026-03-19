@@ -36,6 +36,7 @@ from pureql.database import (
 from pureql.ai.ollama_client import (
     detect_hardware, get_recommended_models,
     is_ollama_installed, is_ollama_running, get_installed_models, start_ollama,
+    install_ollama,
 )
 from pureql.ai.interpreter import interpret, build_context
 from pureql.ai.keychain import save_api_key, get_api_key, delete_api_key, has_api_key
@@ -556,6 +557,8 @@ class PureQLHandler(BaseHTTPRequestHandler):
                 self._handle_ollama_status()
             elif path == "/ollama/start":
                 self._handle_ollama_start()
+            elif path == "/ollama/install":
+                self._handle_ollama_install()
             elif path == "/ollama/models":
                 self._handle_ollama_models()
             elif path == "/settings":
@@ -1183,6 +1186,17 @@ class PureQLHandler(BaseHTTPRequestHandler):
                     "Please run 'ollama serve' in a terminal and try again."
                 ),
             })
+
+    def _handle_ollama_install(self):
+        """Download and install Ollama for the current platform."""
+        if is_ollama_installed():
+            self._respond(200, {
+                "success": True,
+                "message": "Ollama is already installed.",
+            })
+            return
+        result = install_ollama()
+        self._respond(200, result)
 
     def _handle_ollama_models(self):
         if is_ollama_running():
